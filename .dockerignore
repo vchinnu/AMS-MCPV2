@@ -1,0 +1,19 @@
+.env
+.env.example
+__pycache__/
+*.pyc
+*.pyo
+old/
+*.docx
+*.csv
+*.md
+# Exclude all .txt EXCEPT requirements.txt
+*.txt
+!requirements.txt
+mcp_client.py
+foundry_mcp_client.py
+call-agent.py
+register-mcp-agent.py
+test_tools.py
+deploy-to-aca.ps1
+PLAN.md

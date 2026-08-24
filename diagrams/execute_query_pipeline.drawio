@@ -1,0 +1,139 @@
+<mxfile host="app.diagrams.net" modified="2026-08-18T00:00:00.000Z" agent="GitHub Copilot" version="24.0.0" type="device">
+  <diagram id="pipeline-flow" name="execute_query Pipeline Flow">
+    <mxGraphModel dx="1422" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="&lt;b&gt;execute_query() Internal Pipeline Flow&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=16;fontColor=#2F5496;" vertex="1" parent="1">
+          <mxGeometry x="520" y="20" width="380" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Step 1: Input -->
+        <mxCell id="s1" value="&lt;b&gt;Input&lt;/b&gt;&lt;br&gt;KQL + SID + analysis_type" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4472C4;fontColor=#FFFFFF;strokeColor=#2F5496;fontSize=12;arcSize=20;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Step 2: Validate -->
+        <mxCell id="s2" value="&lt;b&gt;Validate KQL&lt;/b&gt;&lt;br&gt;Read-only check" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D9E2F3;fontColor=#2F5496;strokeColor=#8FAADC;fontSize=11;arcSize=15;" vertex="1" parent="1">
+          <mxGeometry x="310" y="100" width="150" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Step 3: Execute -->
+        <mxCell id="s3" value="&lt;b&gt;la_client&lt;/b&gt;&lt;br&gt;Execute KQL&lt;br&gt;→ Azure Log Analytics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#70AD47;fontColor=#FFFFFF;strokeColor=#548235;fontSize=11;arcSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="510" y="100" width="170" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Decision: Rows returned? -->
+        <mxCell id="d1" value="Rows&lt;br&gt;returned?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;fontColor=#806000;strokeColor=#D6B656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="740" y="90" width="110" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- No data -->
+        <mxCell id="nodata" value="Return&lt;br&gt;no_data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F2F2;fontColor=#595959;strokeColor=#D9D9D9;fontSize=11;arcSize=15;" vertex="1" parent="1">
+          <mxGeometry x="760" y="20" width="80" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Step 4: Cache -->
+        <mxCell id="s4" value="&lt;b&gt;result_cache&lt;/b&gt;&lt;br&gt;store(query_id, rows)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#9DC3E6;fontColor=#1F4E79;strokeColor=#5B9BD5;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="920" y="90" width="170" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Decision: analysis_type? -->
+        <mxCell id="d2" value="analysis_type&lt;br&gt;provided?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;fontColor=#806000;strokeColor=#D6B656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="240" width="140" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- YES path: Registry -->
+        <mxCell id="s5" value="&lt;b&gt;Analyzer Registry&lt;/b&gt;&lt;br&gt;get_analyzer(type)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFC000;fontColor=#000000;strokeColor=#BF9000;fontSize=11;arcSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="250" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Decision: Analyzer found? -->
+        <mxCell id="d3" value="Analyzer&lt;br&gt;found?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;fontColor=#806000;strokeColor=#D6B656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="350" width="100" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Plugin analyzer -->
+        <mxCell id="s6" value="&lt;b&gt;Run Plugin Analyzer&lt;/b&gt;&lt;br&gt;analyzers/*.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE699;fontColor=#806000;strokeColor=#BF9000;fontSize=11;arcSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="480" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- NO path: Generic summarizer -->
+        <mxCell id="s7" value="&lt;b&gt;generic_summarizer&lt;/b&gt;&lt;br&gt;Stats + 3 samples" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F4B183;fontColor=#843C0C;strokeColor=#C55A11;fontSize=11;arcSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="710" y="370" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- TOON formatter -->
+        <mxCell id="s8" value="&lt;b&gt;toon_formatter&lt;/b&gt;&lt;br&gt;compact() / format_summary_response()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#A9D18E;fontColor=#375623;strokeColor=#548235;fontSize=11;arcSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="870" y="560" width="280" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Output -->
+        <mxCell id="out" value="&lt;b&gt;Return to Model&lt;/b&gt;&lt;br&gt;Compact summary + query_id&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;~3 KB instead of ~14 KB&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#4472C4;fontColor=#FFFFFF;strokeColor=#2F5496;fontSize=12;arcSize=20;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="890" y="650" width="240" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ============ ARROWS ============ -->
+        <!-- s1 → s2 -->
+        <mxCell id="e1" style="endArrow=block;endFill=1;html=1;strokeColor=#595959;strokeWidth=2;" edge="1" parent="1" source="s1" target="s2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- s2 → s3 -->
+        <mxCell id="e2" style="endArrow=block;endFill=1;html=1;strokeColor=#595959;strokeWidth=2;" edge="1" parent="1" source="s2" target="s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- s3 → d1 -->
+        <mxCell id="e3" style="endArrow=block;endFill=1;html=1;strokeColor=#595959;strokeWidth=2;" edge="1" parent="1" source="s3" target="d1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- d1 → nodata (No) -->
+        <mxCell id="e4" value="No" style="endArrow=block;endFill=1;html=1;strokeColor=#FF0000;fontColor=#FF0000;fontSize=10;" edge="1" parent="1" source="d1" target="nodata">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- d1 → s4 (Yes) -->
+        <mxCell id="e5" value="Yes" style="endArrow=block;endFill=1;html=1;strokeColor=#70AD47;fontColor=#70AD47;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="d1" target="s4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- s4 → d2 -->
+        <mxCell id="e6" style="endArrow=block;endFill=1;html=1;strokeColor=#595959;strokeWidth=2;" edge="1" parent="1" source="s4" target="d2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- d2 → s5 (Yes) -->
+        <mxCell id="e7" value="Yes" style="endArrow=block;endFill=1;html=1;strokeColor=#BF9000;fontColor=#BF9000;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="d2" target="s5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- d2 → s7 (No) -->
+        <mxCell id="e8" value="No" style="endArrow=block;endFill=1;html=1;strokeColor=#C55A11;fontColor=#C55A11;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="d2" target="s7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- s5 → d3 -->
+        <mxCell id="e9" style="endArrow=block;endFill=1;html=1;strokeColor=#BF9000;strokeWidth=2;" edge="1" parent="1" source="s5" target="d3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- d3 → s6 (Yes) -->
+        <mxCell id="e10" value="Yes" style="endArrow=block;endFill=1;html=1;strokeColor=#BF9000;fontColor=#BF9000;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="d3" target="s6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- d3 → s7 (No - fallback to generic) -->
+        <mxCell id="e11" value="No" style="endArrow=block;endFill=1;html=1;strokeColor=#C55A11;fontColor=#C55A11;fontSize=10;" edge="1" parent="1" source="d3" target="s7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- s6 → s8 -->
+        <mxCell id="e12" value="format_summary_response()" style="endArrow=block;endFill=1;html=1;strokeColor=#548235;fontColor=#548235;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="s6" target="s8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- s7 → s8 -->
+        <mxCell id="e13" value="compact()" style="endArrow=block;endFill=1;html=1;strokeColor=#548235;fontColor=#548235;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="s7" target="s8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- s8 → out -->
+        <mxCell id="e14" style="endArrow=block;endFill=1;html=1;strokeColor=#4472C4;strokeWidth=2;" edge="1" parent="1" source="s8" target="out">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

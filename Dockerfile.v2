@@ -1,0 +1,40 @@
+# ── SAP RCA MCP Server V2 (Enterprise / Token-Optimized) ─────────────────────
+FROM python:3.11-slim AS base
+
+# Ensure Python output is flushed immediately (visible in Container Apps logs)
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Install dependencies first (layer caching)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir "uvicorn[standard]>=0.29"
+
+# Copy server source — do NOT copy .env (secrets come from ACA env vars at runtime)
+COPY config.py           .
+COPY la_client.py        .
+COPY schema_registry.py  .
+COPY server.py           .
+COPY run_server.py       .
+
+# Domain knowledge
+COPY domain_knowledge.py .
+COPY domain_knowledge_ha.py .
+COPY domain_knowledge_os.py .
+COPY domain_registry.py  .
+
+# Schema definitions
+COPY schemas/            ./schemas/
+
+# Tools (execute_query, get_schema, deeper_rca, result_cache, etc.)
+COPY tools/              ./tools/
+
+# NEW: Plugin analyzers (auto-discovered at runtime)
+COPY analyzers/          ./analyzers/
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+EXPOSE 8000
+
+# Shell form to redirect stderr to stdout (Container Apps only captures stdout)
+CMD python run_server.py 2>&1

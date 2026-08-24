@@ -1,0 +1,534 @@
+# SAP RCA Agent — Log Analytics table Schema Reference
+# Use this document to look up table schemas, column names, and generate KQL query patterns accordingly
+
+## TABLE SCHEMA REFERENCE
+
+### 1. SapNetweaver_SysLogs_CL  [SM21 — System Log]
+Extracted via RFC /SDF/GET_SYS_LOG. Contains SAP system log entries.
+
+| LA Column Name       | SAP FM Field     | Description              | Notes                                      |
+|----------------------|------------------|--------------------------|--------------------------------------------|
+| Application_Comp_s   | Application Comp | SAP Component            | High-level SAP application area            |
+| Component_s          | Component        | Technical Component      | Technical sub-component identifier         |
+| Description_s        | Description      | Log Message              | The actual system log message text         |
+| Development_Class_s  | Development Class| Package                  | ABAP development package                   |
+| Development_Unit_s   | Development Unit | Program/Unit             | ABAP program or unit that logged this      |
+| E2E_DATE_s           | E2E_DATE         | Event Date               | Date of occurrence in SAP system (string)  |
+| E2E_HOST_s           | E2E_HOST         | Host Name                | SAP system hostname where event occurred   |
+| E2E_SEVERITY_s       | E                | Severity                 | Severity level of the log entry            |
+| E2E_TIME_s           | E2E_TIME         | Event Time               | SAP system time of occurrence (HHMMSS str) |
+| E2E_USER_s           | E2E_USER         | User                     | SAP user that caused this occurrence       |
+| Msg_area_Msd_Id_s    | Msg area - Msd Id| Message Class            | SAP message class and ID                   |
+| Problem_Class_s      | Problem Class    | Error Category           | Classification of the problem type         |
+| Program_s            | Program          | Program                  | ABAP program name that generated the log   |
+| SID_s                |                  | SAP System ID            | Use for filtering — always filter on this  |
+| Transaction_s        | Transaction      | Transaction Code         | SAP transaction code in context            |
+| TimeGenerated        | (ingestion)      | Log Analytics ingest time| USE THIS for KQL time range filtering      |
+
+Severity values in E2E_SEVERITY_s:
+Only the following two values are currently populated in the Log Analytics table:
+- 1  = Very High Priority — critical system messages requiring immediate investigation
+- 2  = High Priority      — significant messages that require investigation
+
+Always filter using numeric string values: E2E_SEVERITY_s == '1' or E2E_SEVERITY_s == '2'
+Do not filter on letter codes (E, W, A, etc.) — they are not present in this data.
+
+Problem_Class_s common values:
+- 'Security'       — authorisation or security related
+- 'Performance'    — performance problem
+- 'Availability'   — availability or connectivity issue
+- 'Database'       — database layer problem
+- '' or space      — general/unclassified
+
+KQL analysis approach for SM21:
+- Filter E2E_SEVERITY_s == '1' or '2' to find errors and aborts.
+- Group by Description_s to find repeated error messages.
+- Group by Program_s to find error-generating programs.
+- Group by E2E_USER_s to find user-triggered errors.
+- Group by Transaction_s to find problematic transactions.
+- Group by Component_s to identify the technical area under stress.
+- Correlate E2E_DATE_s + E2E_TIME_s with short dump timestamps to find the same incident.
+- Ordered by TimeGenerated to reconstruct the sequence of events.
+
+### 2. SapNetweaver_ShortDumps_CL  [ST22 — ABAP Short Dumps]
+Extracted via RFC /SDF/GET_DUMP_LOG. Contains ABAP runtime error (short dump) header data.
+
+| LA Column Name         | SAP FM Field         | Description              | Notes                                      |
+|------------------------|----------------------|--------------------------|--------------------------------------------|
+| Application_Componen_s | Application Componen | Application Component    | SAP application component (note truncation)|
+| Component_s            | Component            | Component                | Technical SAP component                    |
+| Development_Class_s    | Development Class    | Package                  | ABAP development package of the program    |
+| E2E_DATE_s             | E2E_DATE             | Event Date               | Date of dump occurrence (SAP system date)  |
+| E2E_HOST_s             | E2E_HOST             | Host Name                | Hostname of SAP application server         |
+| E2E_SEVERITY_s         | E                    | Severity                 | Severity of the error                      |
+| E2E_TIME_s             | E2E_TIME             | Event Time               | SAP system time of dump (HHMMSS string)    |
+| E2E_USER_s             | E2E_USER             | User                     | SAP user that caused the dump              |
+| Error_Short_Text_s     | Error Short Text     | Error Short Text         | Human readable short description of error  |
+| Exception_s            | Exception            | Exception                | ABAP exception class (if applicable)       |
+| Program_s              | Program              | Program                  | ABAP program that was cancelled by the dump|
+| Runtime_Error_s        | Runtime Error        | Runtime Error            | ABAP runtime error code (e.g., TIME_OUT)   |
+| timestamp_t            | UTC Time Stamp       | UTC timestamp of dump    | PRIMARY time column — use for KQL filters  |
+| Transaction_ID_s       | Transaction ID       | Transaction ID           | EPP passport transaction ID                |
+| SID_s                  |                      | SAP System ID            | Use for SID filtering                      |
+| hostname_s             |                      | Application server host  | Cross-reference with SysLogs               |
+| instanceNr_s           |                      | Instance number          | Cross-reference with availability tables   |
+| client_s               |                      | SAP client               |                                            |
+
+
+## Runtime Errors Mapping
+
+| Runtime Error                  | Category                     | Description                                      |
+|--------------------------------|------------------------------|--------------------------------------------------|
+| MEMORY_NO_MORE_PAGING          | Resource Bottleneck          | Extended memory exhausted                        |
+| SYSTEM_NO_ROLL                 | Resource Bottleneck          | Roll area full                                   |
+| RESOURCE_FAILURE               | Resource Bottleneck          | General resource shortage                        |
+| TIME_OUT                       | Resource Bottleneck          | Execution exceeded time limit                    |
+| TSV_TNEW_PAGE_ALLOC_FAILED     | Resource Bottleneck          | Internal table memory overflow                   |
+| SYSTEM_NO_TASK_STORAGE         | Resource Bottleneck          | No memory for user context                       |
+| MESSAGE_TYPE_X                 | ABAP Programming Error       | Program terminated via MESSAGE X                 |
+| RAISE_EXCEPTION                | ABAP Programming Error       | Unhandled exception                              |
+| GETWA_NOT_ASSIGNED             | ABAP Programming Error       | Field symbol not assigned                        |
+| MOVE_CAST_ERROR                | ABAP Programming Error       | Invalid type casting                             |
+| COMPUTE_INT_ZERODIVIDE         | ABAP Programming Error       | Division by zero                                 |
+| DYNPRO_SEND_IN_BACKGROUND      | Dynpro / ABAP Error          | Screen called in background                      |
+| CNTL_ERROR                     | Dynpro / GUI Error           | SAP GUI control framework error                  |
+| CALL_FUNCTION_REMOTE_ERROR     | Communication Error          | RFC call failure                                 |
+| LOCKED_BY_OURSELVES            | Concurrency / Lock Error     | Deadlock within same session                     |
+| DBIF_RSQL_SQL_ERROR            | Database Error               | SQL execution failure                            |
+| DBIF_RSQL_INVALID_REQUEST      | Database / ABAP Error        | Invalid SQL request                              |
+| DBSQL_DUPLICATE_KEY_ERROR      | Database Error               | Duplicate key insert                             |
+| DBSQL_TABLE_UNKNOWN            | Database Error               | Table not found                                  |
+| NO_AUTHORITY                   | Authorization Error          | Missing authorization                            |
+| LOAD_PROGRAM_NOT_FOUND         | Installation / System Error  | Program not found                                |
+| GENERATE_SUBPOOL_DIR_FULL      | System Error                 | Program buffer full                              |
+| SYSTEM_CANCELED                | Intentional Termination      | Program cancelled by user/admin                  |
+
+# ABAP Runtime Error → Category Mapping
+
+| Runtime Error                  | Category                        | Subcategory / Hint                  |
+|--------------------------------|----------------------------------|------------------------------------|
+| MEMORY_NO_MORE_PAGING          | Resource Bottleneck              | Extended Memory                    |
+| SYSTEM_NO_ROLL                 | Resource Bottleneck              | Roll Area                          |
+| SYSTEM_NO_TASK_STORAGE         | Resource Bottleneck              | User Context Memory                |
+| TSV_TNEW_PAGE_ALLOC_FAILED     | Resource Bottleneck              | Internal Table Memory              |
+| RESOURCE_FAILURE               | Resource Bottleneck              | General Resource                   |
+| TIME_OUT                       | Resource Bottleneck              | Long Running Process               |
+| DBIF_RSQL_SQL_ERROR            | Database Error                   | SQL Runtime Error                  |
+| DBIF_RSQL_INVALID_REQUEST      | Database Error                   | Invalid SQL                        |
+| DBSQL_DUPLICATE_KEY_ERROR      | Database Error                   | Constraint Violation               |
+| DBSQL_TABLE_UNKNOWN            | Database Error                   | Missing Table                      |
+| DBSQL_SQL_ERROR                | Database Error                   | Generic SQL Error                  |
+| CALL_FUNCTION_REMOTE_ERROR     | Communication Error              | RFC Failure                        |
+| CALL_FUNCTION_RECEIVE_ERROR    | Communication Error              | RFC Receive                        |
+| CALL_FUNCTION_SEND_ERROR       | Communication Error              | RFC Send                           |
+| MESSAGE_TYPE_X                 | ABAP Programming Error           | Forced Termination                 |
+| RAISE_EXCEPTION                | ABAP Programming Error           | Unhandled Exception                |
+| CX_SY_NO_HANDLER               | ABAP Programming Error           | Missing Exception Handling         |
+| GETWA_NOT_ASSIGNED             | ABAP Programming Error           | Field Symbol Error                 |
+| MOVE_CAST_ERROR                | ABAP Programming Error           | Type Conflict                      |
+| COMPUTE_INT_ZERODIVIDE         | ABAP Programming Error           | Arithmetic Error                   |
+| CONVT_NO_NUMBER                | ABAP Programming Error           | Conversion Error                   |
+| DYNPRO_SEND_IN_BACKGROUND      | Dynpro Programming Error         | Screen in Background               |
+| DYNPRO_NOT_FOUND               | Dynpro Programming Error         | Missing Screen                     |
+| CNTL_ERROR                     | GUI / Dynpro Error               | Control Framework                  |
+| LOCKED_BY_OURSELVES            | Concurrency / Lock Error         | Self Deadlock                      |
+| ENQUEUE_FAIL                   | Concurrency / Lock Error         | Lock Failure                       |
+| DEADLOCK_DETECTED              | Concurrency / Lock Error         | DB Deadlock                        |
+| NO_AUTHORITY                   | Authorization Error              | Missing Authorization              |
+| NOT_AUTHORIZED                 | Authorization Error              | Security Failure                   |
+| LOAD_PROGRAM_NOT_FOUND         | Installation / System Error      | Missing Program                    |
+| GENERATE_SUBPOOL_DIR_FULL      | System Error                     | Program Buffer                     |
+| PROGRAM_BUFFER_NOT_FOUND       | System Error                     | Buffer Issue                       |
+| SYSTEM_CORE_DUMPED             | Internal Kernel Error            | Kernel Crash                       |
+| KERNEL_PANIC                   | Internal Kernel Error            | Critical Kernel Failure            |
+| SYSTEM_CANCELED                | Intentional Termination          | User/Admin Cancel                  |
+| JOB_CANCELLED                  | Intentional Termination          | Background Job Cancel              |
+
+## Notes for Agent Usage
+
+- Prioritize classification in this order:
+  1. ABAP Programming Error
+  2. Resource Bottleneck
+  3. Database Error
+  4. Communication Error
+  5. System/Admin Issue
+
+- Some runtime errors may belong to multiple categories depending on context.
+- Always validate with:
+  - ST22 dump details
+  - SM21 system logs
+  - SM12 locks
+  - ST05 SQL trace (if DB related)
+
+## Runtime Error Categories reference details below (Note - Category information is not available in LA table data, hence need to refered based on the short text information of the dump)
+
+| Category                        | Description                                                                 | Typical Action                          |
+|--------------------------------|-----------------------------------------------------------------------------|-----------------------------------------|
+| Internal Kernel Error          | Error in ABAP kernel or runtime environment                                | Apply kernel patch / SAP support        |
+| ABAP Programming Errors        | Logic errors in ABAP code                                                  | Fix code                                |
+| Dynpro Programming Errors      | Screen (dialog) processing or flow logic issues                            | Fix PBO/PAI logic                       |
+| Resource Bottleneck            | Memory, CPU, or process exhaustion                                         | Tune system / optimize program          |
+| Database Errors                | SQL or database-level failures                                             | Fix SQL / check DB                      |
+| Communication Errors           | RFC, HTTP, or external system failures                                     | Check connectivity / SM59               |
+| Concurrency / Lock Errors      | Deadlocks or enqueue conflicts                                             | Analyze locks (SM12)                    |
+| Authorization Errors           | Missing or incorrect authorizations                                        | Update roles / auth objects             |
+| Installation/Admin Errors      | System misconfiguration or inconsistency                                   | Basis team fix                          |
+| Temporary Problems             | Transient system issues                                                    | Retry / monitor                         |
+| Intentional Termination        | Program cancelled deliberately                                             | No action needed                        |
+
+
+## 
+KQL analysis approach for ST22:
+- Count total dumps: overall volume is the first severity indicator.
+- Group by Runtime_Error_s: find the dominant error type to identify the category of root cause.
+- Group by Program_s: pinpoint which ABAP program(s) are failing.
+- Group by E2E_USER_s: identify if a specific user or background system user is triggering dumps.
+- Group by Component_s / Application_Componen_s: identify the functional area.
+- Timeline (bin by 5m or 15m): detect when dumps started and whether they are increasing.
+- Correlate timestamp_t with SysLogs TimeGenerated for the same E2E_HOST_s.
+- Correlate Program_s with BatchJobs JOBNAME_s or step programs for background job failures.
+
+### 3. SapNetweaver_BatchJobs_CL  [SM37 — Batch Job Monitor]
+Extracted via RFC. Contains batch job scheduling, status, and execution data.
+
+USER FILTERING: This table does NOT have E2E_USER_s. However, filter by available user
+columns: SDLUNAME_s (who scheduled the job), RELUNAME_s (who released it), or
+LASTCHNAME_s (who last changed it). When a SAP user name is available from the alert,
+always generate a dynamic KQL filtering by SDLUNAME_s == '<user>' OR RELUNAME_s == '<user>'
+to find that user's scheduled/released jobs. Also run an unfiltered query for STATUS_s == 'A'
+(Cancelled) to see all cancelled jobs on the SID. Cross-correlate cancelled jobs with
+ST22 dumps using EXECSERVER_s == E2E_HOST_s (see Q24) for full correlation.
+NEVER report "field mapping issue" or "user field not available" — always try SDLUNAME_s
+and RELUNAME_s first.
+
+| LA Column Name  | SAP FM Field  | Readable Name         | SM37 Column Name    | Notes                                    |
+|-----------------|---------------|-----------------------|---------------------|------------------------------------------|
+| AUTHCKMAN_s     | BTCSYSTEM     | SAP System ID         | System              | Target SAP system for external jobs      |
+| CALENDARID_s    | CALENDARID    | Factory Calendar      | Calendar            | Calendar used for scheduling             |
+| ENDDATE_s       | ENDDATE       | End Date              | End date            | Actual job end date (string YYYYMMDD)    |
+| ENDTIME_s       | ENDTIME       | End Time              | End time            | Actual job end time (string HHMMSS)      |
+| EVENTID_s       | EVENTID       | Event ID              | Event               | SAP event trigger ID                     |
+| EVENTPARM_s     | EVENTPARM     | Event Parameter       | Event Parameter     | Parameter for event-triggered jobs       |
+| EXECSERVER_s    | EXECSERVER    | Executing Server      | Executing server    | Server that executed or will execute job |
+| JOBCLASS_s      | JOBCLASS      | Job Class             | Job Name            | A=Highest, B=Medium, C=Low priority      |
+| JOBCOUNT_s      | JOBCOUNT      | Job ID                | Technical Job ID    | Unique job identifier (with JOBNAME_s)   |
+| JOBNAME_s       | JOBNAME       | Job Name              | Job Name            | Job name as defined in SM36              |
+| LASTCHDATE_s    | LASTCHDATE    | Last Changed Date     | Last Changed        | Date of last modification (YYYYMMDD)     |
+| LASTCHNAME_s    | LASTCHNAME    | Last Changed By       | Last Changed By     | User who last changed the job            |
+| LASTCHTIME_s    | LASTCHTIME    | Last Changed Time     | Last Changed Time   | Time of last modification (HHMMSS)       |
+| LASTSTRTDT_s    | LASTSTRTDT    | Last Step Start Date  | Internal            | Date last step started                   |
+| LASTSTRTTM_s    | LASTSTRTTM    | Last Step Start Time  | Internal            | Time last step started                   |
+| PERIODIC_s      | PERIODIC      | Periodic Job          | Yes/No              | 'X' = periodic repeating, blank = once  |
+| REAXSERVER_s    | REAXSERVER    | Target Server         | Target Host         | Server the job is scheduled to run on    |
+| RELDATE_s       | RELDATE       | Release Date          | Release date        | Date job was released                    |
+| RELTIME_s       | RELTIME       | Release Time          | Release time        | Time job was released                    |
+| RELUNAME_s      | RELUNAME      | Released By           | Released By         | User who released the job                |
+| SDLDATE_s       | SDLDATE       | Last Scheduled Date   | Internal            | Last scheduling date                     |
+| SDLSTRTDT_s     | SDLSTRTDT     | Scheduled Start Date  | Sched. start date   | Planned start date (YYYYMMDD)            |
+| SDLSTRTTM_s     | SDLSTRTTM     | Scheduled Start Time  | Sched. start time   | Planned start time (HHMMSS)              |
+| SDLTIME_s       | SDLTIME       | Last Scheduled Time   | Internal            | Last scheduling time                     |
+| SDLUNAME_s      | SDLUNAME      | Scheduled By User     | Created By          | User who scheduled the job               |
+| STATUS_s        | STATUS        | Job Status            | Status              | See status codes below — CRITICAL field  |
+| STEPCOUNT_d     | STEPCOUNT     | Step Count            | Steps               | Number of steps defined in the job       |
+| STRTDATE_s      | STRTDATE      | Actual Start Date     | Start date          | Actual date job started (YYYYMMDD)       |
+| STRTTIME_s      | STRTTIME      | Actual Start Time     | Start time          | Actual time job started (HHMMSS)         |
+| WPNUMBER_d      | WPNUMBER      | Work Process Number   | WP no.              | Work process number used                 |
+| WPPROCID_d      | WPPROCID      | Work Process ID       | PID                 | OS process ID of the work process        |
+| SID_s           |               | SAP System ID         |                     | Use for SID filtering                    |
+| sapsid_s        |               | SAP SID               |                     | Alternate SID column                     |
+| hostname_s      |               | Application server    |                     |                                          |
+| instanceNr_s    |               | Instance number       |                     |                                          |
+| client_s        |               | SAP client            |                     |                                          |
+| serverTimestamp_t|              | Collection time       |                     | USE for KQL time filtering               |
+
+CRITICAL — Job Status Codes (STATUS_s):
+- F = Finished       : Job completed successfully. Expected end state.
+- S = Released       : Job released and waiting for scheduled start time or a free batch WP.
+- P = Scheduled      : Job defined but not yet released by user or system event.
+- A = Cancelled      : Job terminated abnormally — PRIMARY failure indicator for RCA.
+- Z = Active         : Job is currently running in a batch work process.
+- Y = Ready          : Job is ready and waiting for a free batch work process to become available.
+- G = Released (restricted) : Released with additional restrictions.
+
+Job Status Troubleshooting:
+- A (Cancelled): Primary failure. Cross-correlate with ShortDumps at the same STRTDATE_s/STRTTIME_s
+  on the same EXECSERVER_s. The cancelling dump's E2E_USER_s is typically a background system user.
+  Also check SysLogs at the same time on the same E2E_HOST_s for related error messages.
+- Z (Active) with old STRTDATE_s/STRTTIME_s: May be stuck/hung. Cross-reference with work process
+  monitoring if available. Look for associated errors in SysLogs on the same EXECSERVER_s.
+- Y (Ready) many jobs simultaneously: Batch work process starvation — all BTC work processes busy.
+  Look for other jobs in Z status running on the same EXECSERVER_s.
+- Periodic job (PERIODIC_s = 'X') in A status: The repeating chain is broken. All subsequent
+  scheduled executions will not run until the job chain is manually restarted.
+- RELDATE_s / RELTIME_s much earlier than STRTDATE_s / STRTTIME_s: Job waited a long time
+  before starting — indicates work process unavailability at that time.
+
+### 4. SapNetweaver_GetSystemInstanceList_CL  [SAP Instance Availability]
+Collected by the SAP Azure Monitor provider. Reflects availability of each SAP instance.
+
+Key columns:
+- SID_s           : SAP System ID — always filter on this
+- sapsid_s        : SAP SID (alternate)
+- hostname_s      : Application server hostname
+- instanceNr_d    : Instance number (numeric)
+- features_s      : Instance role/features string, e.g.:
+                    "MESSAGESERVER|ENQUE" = ASCS instance (message server + enqueue)
+                    "ICMAN|..."           = Application server instance (dialog + batch)
+                    "WEBDISP"             = Web Dispatcher
+                    "TREX"                = Search engine
+- dispstatus_s    : Display status:
+                    SAPControl-GREEN  = Instance is running and healthy
+                    SAPControl-RED    = Instance is in error / down
+                    SAPControl-YELLOW = Instance is degraded / warning
+                    SAPControl-GRAY   = Instance is offline / not reachable
+- startPriority_s : Startup priority (lower number = started first)
+- httpPort_d      : HTTP port
+- httpsPort_d     : HTTPS port
+- serverTimestamp_t : Collection timestamp — use for KQL time filtering
+- timestamp_t     : Record timestamp
+
+Availability analysis:
+- ASCS (MESSAGESERVER|ENQUE) RED or GRAY = total system outage for all users.
+- Any application server RED or GRAY = reduced dialog/batch capacity.
+- YELLOW = degraded but attempting to recover — monitor closely.
+- Multiple transitions between GREEN and RED in short time = intermittent failure.
+
+### 5. SapNetweaver_GetProcessList_CL  [SAP Instance Process Status]
+Key columns:
+- SID_s           : SAP System ID
+- hostname_s      : Application server hostname
+- instanceNr_d    : Instance number
+- name_s          : OS process name (e.g., disp+work, msg_server, enserver, igswd, icman)
+- description_s   : Human-readable process description
+- dispstatus_s    : Process status (SAPControl-GREEN/RED/YELLOW/GRAY)
+- textstatus_s    : Text description of current process state
+- elapsedtime_s   : How long the process has been running in current state
+- starttime_s     : Process start time
+- pid_d           : OS Process ID
+- serverTimestamp_t : Collection timestamp
+
+Process analysis:
+- disp+work RED = dispatcher is down — no new user connections possible on that instance.
+- msg_server RED = message server down — no RFC routing, user logon portal broken.
+- enserver RED  = enqueue server down — no lock management — system-wide lock failures.
+- icman RED     = ICM down — no HTTP/HTTPS connections (Fiori, web GUI).
+- Short elapsedtime_s = process recently restarted — may indicate crash and auto-recovery.
+
+### 6. Prometheus_OSExporter_CL  [OS-Level Metrics — Node Exporter]
+
+Key columns:
+- SID_s      	  : SID of an SAP system 
+- name_s          : Metric name — use exact names from the list below
+- labels_s        : JSON string of metric labels — always parse with parse_json()
+- value_d         : Metric value
+- TimeGenerated   : Metric collection time — USE for KQL time filtering
+- correlation_id_g: Batch correlation ID (links all metrics in one collection cycle)
+
+NOTE:
+- Metrics with _total suffix are CUMULATIVE COUNTERS. Compute rate as:
+  (max(value_d) - min(value_d)) over a time window, or per bin.
+- Gauge metrics (no _total) reflect current state directly.
+- Actual collection frequency depends on scrape configuration (typically 60s).
+
+---
+
+Metrics available:
+
+--- CPU ---
+node_cpu_seconds_total     : CPU time per core per mode (cumulative counter)
+                             labels: {"cpu":"0","mode":"idle|user|system|iowait|steal|softirq|irq|nice"}
+                             Correct usage:
+                               - CPU Usage % = 100 * (1 - idle_delta / total_delta)
+                               - Mode %      = (mode_delta / total_delta) * 100
+
+---
+
+--- Memory ---
+node_memory_MemTotal_bytes     : Total physical memory (gauge)
+node_memory_MemFree_bytes      : Free memory (gauge)
+node_memory_MemAvailable_bytes : Memory available to new allocations — PREFERRED for pressure check
+node_memory_Cached_bytes       : Page cache (gauge)
+node_memory_Buffers_bytes      : Kernel buffer memory (gauge)
+node_memory_SwapTotal_bytes    : Total swap space (gauge)
+node_memory_SwapFree_bytes     : Free swap space (gauge — decreasing may indicate swap usage)
+node_memory_SwapCached_bytes   : Swap cache (gauge)
+
+---
+
+--- Virtual Memory / Paging ---
+node_vmstat_pgpgin   : Pages paged in from disk (cumulative counter)
+node_vmstat_pgpgout  : Pages paged out to disk (cumulative counter)
+node_vmstat_pswpin   : Pages swapped in (cumulative counter)
+node_vmstat_pswpout  : Pages swapped out (cumulative counter)
+
+Interpretation:
+- Swap activity is normal at low levels.
+- Alert only if:
+  - sustained increase in pswpin/pswpout rate
+  - AND low node_memory_MemAvailable_bytes
+
+---
+
+--- Processes ---
+node_procs_running   : Processes in runnable state (gauge — indicates CPU pressure, NOT full load)
+node_procs_blocked   : Processes blocked on I/O (gauge — sustained high values indicate I/O contention)
+node_forks_total     : Total process forks (cumulative counter)
+
+NOTE:
+- node_procs_running is NOT equivalent to load average.
+
+---
+
+--- Disk I/O (per device — labels: {"device":"sda|sdb|..."}) ---
+node_disk_io_now                  : I/O operations currently in progress (gauge — indicates in-flight I/O, not exact queue length)
+node_disk_io_time_seconds_total   : Total time disk was busy (cumulative counter)
+node_disk_read_bytes_total        : Bytes read (cumulative counter)
+node_disk_written_bytes_total     : Bytes written (cumulative counter)
+node_disk_reads_completed_total   : Read operations completed (cumulative counter)
+node_disk_writes_completed_total  : Write operations completed (cumulative counter)
+node_disk_read_time_seconds_total : Time spent on reads (cumulative counter)
+node_disk_write_time_seconds_total: Time spent on writes (cumulative counter)
+
+Derived:
+- Disk Utilization % = rate(node_disk_io_time_seconds_total) * 100
+  (may exceed 100% on systems with parallel I/O)
+
+- Avg Read Latency  = read_time_delta / reads_completed_delta
+- Avg Write Latency = write_time_delta / writes_completed_delta
+
+Filter recommendations:
+- Exclude devices: loop*, ram*, (optional: dm-* depending on use case)
+
+---
+
+--- Filesystem ---
+node_filesystem_size_bytes   : Total filesystem size (gauge)
+                               labels: {"mountpoint":"/hana/data","fstype":"xfs|ext4|nfs4"}
+node_filesystem_free_bytes   : Free bytes (gauge)
+node_filesystem_avail_bytes  : Available bytes to non-root (gauge)
+
+NOTES:
+- Metrics are exposed continuously; frequency depends on scrape interval.
+- Use wider time windows if scrape interval is large.
+- Filter fstype to xfs, ext4, nfs4 — exclude tmpfs, devtmpfs.
+
+---
+
+--- Network (per interface — labels: {"device":"eth0|ens..."} — exclude "lo") ---
+node_network_receive_bytes_total    : Bytes received (cumulative counter)
+node_network_transmit_bytes_total   : Bytes transmitted (cumulative counter)
+node_network_receive_packets_total  : Packets received (cumulative counter)
+node_network_transmit_packets_total : Packets transmitted (cumulative counter)
+
+Recommended additional metrics:
+node_network_receive_errs_total     : Receive errors (cumulative counter)
+node_network_transmit_errs_total    : Transmit errors (cumulative counter)
+node_network_receive_drop_total     : Receive drops (cumulative counter)
+node_network_transmit_drop_total    : Transmit drops (cumulative counter)
+
+---
+
+--- System Info ---
+node_uname_info        : System info gauge (value=1), labels: {nodename, release, machine}
+node_boot_time_seconds : System boot time (Unix timestamp)
+node_time_seconds      : Current system time (Unix timestamp)
+
+---
+
+--- Load Metrics (If Available) ---
+node_load1  : 1-minute load average
+node_load5  : 5-minute load average
+node_load15 : 15-minute load average
+
+NOTE:
+- These may not be collected in all environments.
+- If unavailable, use:
+  - node_procs_running (CPU pressure proxy)
+  - node_procs_blocked (I/O pressure proxy)
+
+### 7. Prometheus_HaClusterExporter_CL  [HA Pacemaker Cluster Health]
+Key columns:
+- sid_s           : SAP SID
+- clusterName_s   : HA cluster name
+- hostname_s      : Cluster node reporting this metric
+- name_s          : Metric name (see below)
+- labels_s        : JSON labels — always parse with parse_json()
+- value_d         : 1 = condition is true / matches state; 0 = not
+- TimeGenerated   : Collection timestamp — USE for KQL time filtering
+- correlation_id_g: Batch ID — links all metrics in one collection cycle
+
+Metric name reference and label schemas:
+
+  name_s = 'sapmon'
+    Heartbeat from the exporter. Used to identify the latest active correlation_id_g per node.
+
+  name_s = 'up'
+    value_d = 1 means exporter is running on this node; 0 = exporter down (data may be stale).
+
+  name_s = 'ha_cluster_pacemaker_nodes'
+    One row per node per status. value_d = 1 means the node is in that status.
+    labels_s keys: status, node
+    status values:
+      'online'         — Node is active. Expected normal state.
+      'dc'             — This node is the Designated Coordinator (authoritative cluster source).
+      'offline'        — Node is shut down or unreachable. ALERT.
+      'unclean'        — Node in unclean state (fencing required). CRITICAL ALERT.
+      'pending'        — Node joining the cluster.
+      'shutdown'       — Node shutting down.
+      'standby'        — Node in standby (not running resources).
+      'standby_onfail' — Node went to standby after a failure. ALERT.
+      'maintenance'    — Node in maintenance mode.
+
+  name_s = 'ha_cluster_pacemaker_resources'
+    One row per resource per state combination. value_d = 1 = resource matches that state.
+    labels_s keys: status, role, managed, resource, node, agent, group
+
+    status values:
+      'active'         — Resource running normally. Expected state.
+      'failed'         — Resource has failed. CRITICAL — service impact.
+      'failed_ignored' — Failed but cluster policy ignores it.
+      'blocked'        — Resource cannot start on any node. CRITICAL.
+      'orphaned'       — Resource has no node assignment.
+    role values:
+      'started'  — Resource is started (most resource types).
+      'master'   — Resource is SAP HANA primary. Must have exactly one.
+      'slave'    — Resource is SAP HANA secondary. Must have exactly one.
+      'stopped'  — Resource is stopped.
+    managed values:
+      'true'  — Pacemaker manages this resource (normal).
+      'false' — Resource is unmanaged (maintenance/manual hold). Cluster will not auto-recover.
+
+ name_s = 'ha_cluster_pacemaker_fail_count'
+    value_d = cumulative failure count for a resource on a specific node. Incremented each
+    time Pacemaker attempts and fails to start/stop/monitor the resource on that node.
+    labels_s keys: resource, node
+
+    IMPORTANT: The migration-threshold (the configured limit at which Pacemaker gives up on
+    a node for that resource) is a cluster CRM setting — it is NOT exposed as a separate
+    metric in the LA table. You cannot compare value_d against migration-threshold in KQL.
+
+    Practical interpretation:
+    - value_d == 0  → No failures. Normal state.
+    - value_d > 0   → Resource has failed at least once on this node. Investigate.
+    - value_d rising over time → Recurring failure pattern. Likely requires admin intervention.
+    - value_d is INFINITY (very large number) → Pacemaker has permanently excluded this node
+      for this resource. Manual cleanup ('crm_resource --cleanup') is required.
+
+
+  name_s = 'ha_cluster_pacemaker_location_constraints'
+    Placement constraints currently in force. Presence of 'cli-prefer-*' constraints
+    indicates a manual resource move was performed.
+    labels_s keys: constraint, node, status
+
+  name_s = 'ha_cluster_corosync_quorate'
+    value_d = 1 = cluster has quorum. 0 = quorum lost — cluster stops resources to prevent
+    data corruption (split-brain protection). CRITICAL when 0.
+
+  name_s = 'ha_cluster_corosync_members'
+    value_d = number of Corosync ring members. Should equal the cluster node count.
+
+  name_s = 'ha_cluster_pacemaker_stonith_enabled'
+    value_d = 1 = STONITH fencing is enabled (required for production HA). 0 = unsafe config.
+
+---
+

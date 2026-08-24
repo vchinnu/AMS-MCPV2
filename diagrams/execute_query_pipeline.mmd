@@ -1,0 +1,25 @@
+flowchart LR
+    subgraph execute_query
+        A[KQL + SID] --> B[la_client<br/>Run Query]
+        B --> C{Rows returned?}
+        C -->|Yes| D[result_cache<br/>store rows]
+        C -->|No| Z[Return no_data]
+        D --> E{analysis_type<br/>provided?}
+        E -->|Yes| F[analyzer_registry<br/>get_analyzer type]
+        F --> G{Analyzer<br/>found?}
+        G -->|Yes| H[Run Plugin<br/>Analyzer]
+        G -->|No| I[generic_summarizer]
+        E -->|No| I
+        H --> J[toon_formatter<br/>format_summary_response]
+        I --> K[toon_formatter<br/>compact]
+        J --> L["Return summary<br/>+ query_id"]
+        K --> L
+    end
+
+    style A fill:#4472C4,color:#fff
+    style D fill:#9DC3E6,color:#000
+    style H fill:#FFE699,color:#000
+    style I fill:#F4B183,color:#000
+    style J fill:#A9D18E,color:#000
+    style K fill:#A9D18E,color:#000
+    style L fill:#70AD47,color:#fff

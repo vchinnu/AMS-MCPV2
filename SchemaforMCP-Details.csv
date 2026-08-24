@@ -1,0 +1,327 @@
+﻿ ST22 short dumps,,
+LA table -SapNetweaver_ShortDumps_CL( schema names),Description,
+Application_Componen_s,"The high-level functional area in SAP where the issue occurred (e.g., FI, MM, SD). Helps categorize the error by business domain.",
+Component_s,"This is the SAP application component (technical classification) like LO-VCH, PPM-CF, BC-CST-EQ.it's the official SAP component hierarchy used in OSS/support. A more specific sub-area within the application component. Provides finer classification of where the error belongs.",
+Development_Class_s,"Also known as package. Indicates the technical grouping of the object (program/module) in the SAP repository. Useful for identifying ownership or transport grouping.
+ABAP package (e.g., SENQ, INM_CPPM, VCH_HL_CORE). Indicates ownership and transport layer.",
+E2E_DATE_s,Date when the dump/error occurred.,
+E2E_HOST_s,The server/host name where the error (dump) was triggered.,
+E2E_SEVERITY_s,Represents the error type or severity indicator of the Error,
+E2E_TIME_s,Time when the dump/error occurred (paired with E2E_DATE).,
+E2E_USER_s,The SAP user ID under which the program was running when the dump occurred.,
+Error_Short_Text_s,A brief description of the error (similar to the short text seen in ST22 dumps). Gives a quick idea of what went wrong.,
+Exception_s,The ABAP exception class or name that was raised (if applicable). Useful for debugging object-oriented errors.Empty for classic runtime errors like RFC or TIME_OUT.,
+Program_s,"The ABAP program or report in which the dump occurred. (e.g., SAPLSENA, SAPLRPM_FICO_INT_DATA, CL_VCH_HL_ENGINE_FACTORY======CP).",
+Runtime_Error_s,"ABAP runtime error ID (e.g., UNCAUGHT_EXCEPTION, CALL_FUNCTION_OPEN_ERROR, TIME_OUT). This matches ST22 dump category exactly.This is key for root cause analysis",
+serverTimestamp_t,The exact timestamp of the dump in UTC format. Useful for cross-system correlation and logs comparison.,
+Transaction_ID_s,Unique identifier of the transaction/session during which the error occurred.it's usually a technical transaction/session identifier (GUID-like or LUW ID),
+,,
+,,
+ SM37 batch jobs,,
+LA table - SapNetweaver_BatchJobs_CL ( schema names),Description,
+AUTHCKMAN_s,Logical SAP system client where the background job is defined/executed,
+ENDDATE_s,Actual date when the job execution finished,
+ENDTIME_s,"Actual time when the job execution finished (to Calculated the total time the job ran - 
+(ENDTIME_s-STRTTIME_s) this would be duration of the job run)",
+EVENTID_s,Event name that can trigger the job execution,
+EVENTPARM_s,Additional parameter associated with the triggering event,
+,Application server where the job step was actually executed,
+JOBCLASS_s,"Job priority class (A = High,  B = Medium,  C = Low)",
+JOBCOUNT_s,Unique technical identifier for a specific job run (job instance),
+JOBNAME_s,Name of the background job,
+LASTCHDATE_s,Date when the job definition was last changed,
+LASTCHNAME_s,User who last modified the job definition,
+LASTCHTIME_s,Time when the job definition was last changed,
+LASTSTRTDT_s,Start date of the previous execution of the job,
+LASTSTRTTM_s,Start time of the previous execution of the job,
+PERIODIC_s,Indicator if the job is periodic/recurring (X = Yes),
+REAXSERVER_s,Requested target application server for job execution,
+RELDATE_s,Date when the job was released (made ready for execution),
+RELTIME_s,Time when the job was released,
+RELUNAME_s,User who released the job,
+SDLDATE_s,Date when the job was scheduled/defined,
+SDLSTRTDT_s,Planned start date of the job,
+SDLSTRTTM_s,Planned start time of the job,
+SDLTIME_s,Time when the job was scheduled,
+SDLUNAME_s,User who scheduled the job,
+STATUS_s,"Current status of the job (e.g. 
+- F = Finished       : Job completed successfully. Expected end state.
+- S = Released       : Job released and waiting for scheduled start time or a free batch WP.
+- P = Scheduled      : Job defined but not yet released by user or system event.
+- A = Cancelled      : Job terminated abnormally — PRIMARY failure indicator for RCA.
+- Z = Active         : Job is currently running in a batch work process.
+- Y = Ready          : Job is ready and waiting for a free batch work process to become available.
+- G = Released (restricted) : Released with additional restrictions.)",
+STEPCOUNT_d,Number of steps or the specific step number within the job,
+STRTDATE_s,Actual start date of the job execution,
+STRTTIME_s,"Actual start time of the job execution (to calculate if there is a delay in job start check
+ for - (STRTTIME_s-SDLSTRTTM_s) and consider this time as delay of the job)",
+WPNUMBER_d,Work process number that executed the job step,
+WPPROCID_d,(internal/OS-level identifier of the executing process),
+,,
+ SM21 system logs,,
+LA table - SapNetweaver_SysLogs_CL ( schema names),Description,
+Application_Comp_s,Business-friendly application component description,
+Component_s,"SAP technical component classification (e.g., BC-CST)",
+Description_s,Detailed error/log message text,
+Development_Class_s,ABAP package (may be blank in LA),
+Development_Unit_s,"SAP software component (e.g., SAP_BASIS)",
+E2E_DATE_s,Date when the log/event occurred in SAP system,
+E2E_HOST_s,Application server/host where event occurred,
+E2E_SEVERITY_s,"Severity indicator of the event (1 - Very High Priority, 2 - High Priority)",
+E2E_TIME_s,Time when the log/event occurred,
+E2E_USER_s,SAP user who triggered the event,
+Msg_area_Msd_Id_s,Message class and number identifier,
+Problem_Class_s,"Category of problem (e.g., SAP Web AS Problem)",
+Program_s,ABAP program where the issue occurred,
+SID_s,SID of an SAP system,
+Transaction_s,Transaction code (if available),
+,,
+ABAP Work process status ,SM66 Work process view,
+LA table - SapNetweaver_ABAPGetWPTable_CL ( schema names),Description,
+ SID_s               , SAP System ID,
+ hostname_s          , Application server hostname,
+ instanceNr_d        , Instance number,
+ No_d                , Work process number,
+ Typ_s               ," Work process type (DIA=Dialog, BTC=Background, UPD=Update, SPO=Spool, ENQ=Enqueue)",
+ Status_s            ," Current status (Run, Wait, Hold, Stop, Ended, Semaphore)",
+ Reason_s            ," Reason for current status (PRIV=Private mode, ROLL=Rolling, etc.)",
+ Program_s           , ABAP program currently running by Work process,
+ User_s              , User running this work process,
+ Client_s            , SAP client,
+ Action_s            , Current action by work process,
+ Table_s             ,Current Action by work process on table,
+ Cpu_s               , CPU time consumed,
+ Err_s               , Error indicator - no. of times Work process is restrated,
+ Sem_s               , Semaphore number (locked semaphore of work process),
+ serverTimestamp_t   , Collection time,
+Pid_d,Process  ID at OS level,
+,,
+Update record status,SM13  Update Monitoring - Contains failed update records (V1/V2 update failures).,
+LA table - SapNetweaver_FailedUpdates_CL ( schema names),Description,Hints
+hostname_s,Host name of the SAP application server,
+instanceNr_s,SAP instance number,
+MEMORY_EXEMPTION_s,Indicator related to memory handling/exemption (system internal use),
+sapsid_s,SAP system ID,
+serverTimestamp_t,Original timestamp from SAP system when event occurred,
+SID_s,SAP system identifier (normalized field),
+TEMPERATURE_s,Internal status/bitmask field used in update processing,
+VBACCNT_s,Account number related to update (if financial posting involved),
+VBCLIINFO_s,Technical client info indicator,
+VBCLINAME_s,Application server name with instance no.(xx) where update originated,
+VBCONTEXT_s,"Update context (*E* indicates error context) - failed update
+*E*	Error context		Update failed and ended in error
+*U*	Update context 		(normal)Standard update task execution (no error).
+*V*	V1 update		High-priority update (synchronous update task). 
+*W*	V2 update		Low-priority update (asynchronous). Often statistical/log updates.
+*D*	Dialog context		Update triggered directly in dialog process (rare).
+*B*	Background context	Update triggered from a background job.
+*L*	Local update		Local update (SET UPDATE TASK LOCAL). Executes in same work process.
+*R*	Restarted update	Update that was restarted after failure (via SM13).",
+VBDATE_s,Timestamp of update request (YYYYMMDDHHMMSS),
+VBDATFM_s,Date format indicator,
+VBDCPFM_s,Decimal format indicator,
+VBENQKEY_s,Enqueue (lock) key used during update,
+VBETRANSID_s,External transaction identifier,
+VBETRANSLN_s,External transaction line number,
+VBKEY_g,Unique update record identifier (GUID),
+VBLANG_s,Language key,
+VBMANDT_s,SAP client number,
+VBNAME_s,Application Server on which Update is running,
+VBRC_s,Return code (1 indicates error),
+VBREPORT_s,ABAP report/program executed in update task,
+VBSTATE_s,"Update status (1 = failed update)
+Value	Meaning				Explanation
+0	Initial / Not yet processed	Update request created but not yet executed.
+1	Error (Failed update)		Update terminated with error → appears in SM13 failed updates.
+2	Successfully processed		Update completed successfully.
+3	In process			Update currently being processed by update work process.
+4	Terminated (manually or system)	Update was stopped/cancelled before completion.
+5	Auto-restart / Retry state	Update scheduled for restart after failure.
+6	Restarted successfully		Previously failed update, now successfully reprocessed.",
+VBTCODE_s,Transaction code that triggered the update,
+VBTIMOFF_s,Time offset from UTC,
+VBTRANSID_g,Internal SAP transaction ID (GUID),
+VBUSR_s,User who triggered the update,
+VBZONLO_s,Application server time zone,
+,,
+SAP Process status,This will give details on SAP system healthy or not at each process level,
+LA table - SapNetweaver_GetProcessList_CL ( schema names),Description,
+SID_s,SAP System ID (logical system identifier  e.g. CHA),
+description_s,"Human-readable name of the SAP process (e.g. Dispatcher, Gateway, ICM)",
+dispstatus_s,"Status reported by SAPControl (e.g. GREEN = healthy, YELLOW = warning, RED = critical)",
+elapsedtime_s,Total runtime of the process since it started (format hours minutes seconds),
+hostname_s,Host/server name where the SAP instance/process is running,
+instanceNr_d,SAP instance number (identifies a specific application server instance),
+name_s,"Technical process name (OS-level process name, e.g.  disp+work, gwrd, icman)",
+pid_d,Operating system Process ID (PID) of the SAP process,
+sapsid_s,SAP System ID (same as SID  repeated for consistency in monitoring tools),
+starttime_s,Timestamp when the process was last started,
+textstatus_s,"Textual status of the process (e.g. Running,  Stopped)",
+timestamp_t [UTC],Timestamp when this monitoring record was collected (in UTC),
+,,
+SAP System Availability Status,"This table will give the SAP system overall Availability status for each of the instance, also all available instances of an SAP system can be known like no. of application server, enqueue server, web dispatcher along with message server",
+LA table - SapNetweaver_GetSystemInstanceList_CL  (schema names),Description,
+SID_s           , SAP System ID,
+hostname_s      ,SAP server hostname,
+instanceNr_d    ,SAP Instance number (numeric) ,
+features_s      ,"SAP  Instance role/features string, e.g.
+ ""GATEWAY|MESSAGESERVER|ENQUE"" = ASCS instance (message server + enqueue)
+ ""ABAP|GATEWAY|ICMAN|IGS""           = Application server instance (dialog + batch)
+ ""WEBDISP""             = Web Dispatcher
+ ""ENQREP""                = Enqueue Replication Server",
+dispstatus_s    ,"SAP Instance status
+SAPControl-GREEN  = Instance is running and healthy
+ SAPControl-RED    = Instance is in error / down
+SAPControl-YELLOW = Instance is degraded / warning
+SAPControl-GRAY   = Instance is offline / not reachable",
+startPriority_s , Startup priority (lower number = started first),
+httpPort_d      , HTTP port,
+httpsPort_d     , HTTPS port,
+serverTimestamp_t , Collection timestamp — use for KQL time filtering,
+,,
+High Availability Cluster Status,"This table will give the overall High Availability Cluster status with all resources hosted on the cluster with status,Cluster node status, resource constraints , DC status , quorum status",
+LA table - Prometheus_HaClusterExporter_CL  (schema names),Description,
+clusterName_s   , HA cluster name,
+correlation_id_g, Batch ID — links all metrics in one collection cycle,
+hostname_s      , Cluster node reporting this metric,
+labels_s        , JSON labels — always parse with parse_json(),
+name_s          ," Metric name which has the respective data in labels_s for all these name types
+ha_cluster_corosync_member_votes
+ha_cluster_corosync_quorate
+ha_cluster_corosync_quorum_votes
+ha_cluster_corosync_ring_errors
+ha_cluster_corosync_rings
+ha_cluster_pacemaker_config_last_change_total
+ha_cluster_pacemaker_fail_count
+ha_cluster_pacemaker_location_constraints
+ha_cluster_pacemaker_maintenance_mode_enabled
+ha_cluster_pacemaker_migration_threshold
+ha_cluster_pacemaker_node_attributes
+ha_cluster_pacemaker_nodes
+ha_cluster_pacemaker_resources
+ha_cluster_pacemaker_stonith_enabled
+ha_cluster_scrape_duration_seconds
+ha_cluster_scrape_success",
+sid_s           , SAP SID,
+TimeGeneratedPrometheus_t, Collection timestamp — USE for KQL time filtering,
+value_d         , 1 = condition is true / matches state; 0 = not,
+,,
+OS metrics Data,This table will give the overall Operating system metrics status,
+LA table - Prometheus_OSExporter_CL (schema names),Description,
+SID_s      , SID of an SAP system ,
+name_s          ," Metric name which has the respective data in labels_s for all these name types
+node_cpu_seconds_total
+node_disk_io_now
+node_disk_io_time_seconds_total
+node_disk_read_bytes_total
+node_disk_read_time_seconds_total
+node_disk_reads_completed_total
+node_disk_write_time_seconds_total
+node_disk_writes_completed_total
+node_disk_written_bytes_total
+node_forks_total
+node_memory_Buffers_bytes
+node_memory_Cached_bytes
+node_memory_MemAvailable_bytes
+node_memory_MemFree_bytes
+node_memory_MemTotal_bytes
+node_memory_SwapCached_bytes
+node_memory_SwapFree_bytes
+node_memory_SwapTotal_bytes
+node_network_receive_bytes_total
+node_network_receive_packets_total
+node_network_transmit_bytes_total
+node_network_transmit_packets_total
+node_procs_blocked
+node_procs_running
+node_uname_info
+node_vmstat_pgpgin
+node_vmstat_pgpgout
+node_vmstat_pswpin
+node_vmstat_pswpout
+node_boot_time_seconds
+node_filesystem_avail_bytes
+node_filesystem_free_bytes
+node_filesystem_size_bytes
+node_time_seconds
+node_cooling_device_cur_state
+",
+labels_s        , JSON string of metric labels — always parse with parse_json(),
+value_d         , Metric value,
+TimeGeneratedPrometheus_t, Metric collection time — USE for KQL time filtering,
+correlation_id_g, Batch correlation ID (links all metrics in one collection cycle),
+,,
+,,
+ ST22 Full SNAP Dump Detail (section-based),"Full dump analysis data from SNAP table — one row per dump-section combination. Each dump (identified by correlation_id_g + Runtime_Error_s) is split into multiple rows, one per section. The section_text_s field contains key=value pairs for that section, and section_key_name_s provides the SNAP field-code mapping.",
+LA table - SapNetweaver_ShortDumps_SNAPFulldump_CL (schema names),Description,
+TimeGenerated [UTC],Ingestion timestamp in Log Analytics (UTC). Use for KQL time filtering.,
+correlation_id_g,Unique GUID identifying a single dump instance. All section rows for the same dump share this value — use it to JOIN/correlate sections.,
+Runtime_Error_s,"ABAP runtime error ID (e.g. CALL_FUNCTION_OPEN_ERROR, UNCAUGHT_EXCEPTION, TIME_OUT, DBSQL_SQL_ERROR). Matches ST22 dump category. Key field for root cause analysis.",
+section_s,"Section name identifying which part of the dump this row represents. Each dump produces one row per section. Possible values:
+IDENTITY — Dump identity: Runtime_Error, ABAP_Program, ABAP_Include, ABAP_Line, Transaction_ID, SAP_Note, Roll_Area_Start_Time.
+JOB_CONTEXT — Background job context (if dump occurred in batch): Job_Name, Job_Number, Scheduled_By, Client, User, Language.
+SOURCE_CODE — Source code location: Function_Module, Function_Group, Program, Include, Line, Type.
+SYSTEM_FIELDS — SY-* system variable values at time of dump: SY-SUBRC, SY-INDEX, SY-TABIX, SY-DBCNT, SY-FDPOS, etc.
+SELECTED_VARS — Selected ABAP variable values captured at dump time (program-specific variables and their contents).
+CALL_STACK — ABAP call stack trace at time of dump (raw stack frame lines).
+ACTIVE_DATA — Active data/internal table contents at dump time (raw memory dumps of tables, structures, and buffers).
+ENVIRONMENT — SAP system environment: SAP_Release, OS, Hardware, App_Server, DB_Type, SID, DB_Server, DB_User.
+WHAT_HAPPENED — Error circumstances: Calling_Program, Dialog_Step, Error_ID, Error_Context, Error_Summary.
+SHORT_TEXT — Short description text of the error (human-readable one-liner from ST22).
+ERROR_ANALYSIS — Exception class details (e.g. Exception_Class for UNCAUGHT_EXCEPTION dumps). May be empty for non-OO errors.
+RFC_SQL_CONTEXT — RFC or SQL context if applicable: RFC_Destination, Called_Function (for RFC errors) or SQL statement details (for DB errors).
+RAW_ALL — Raw C-stack and low-level dump data (OS-level stack trace, memory addresses). Useful for kernel-level debugging.",
+section_text_s,Pipe-delimited key=value pairs containing the actual dump data for this section. Format: Key1=Value1 | Key2=Value2 | ... The keys vary by section (see section_s description). Parse by splitting on ' | ' then on '='.,
+section_key_name_s,"SNAP field-code to human-readable key mapping for this section. Format: CODE=KeyName, CODE=KeyName, ... Maps the 2-character SNAP table field codes to the readable key names used in section_text_s. Empty for sections like CALL_STACK, ACTIVE_DATA, RAW_ALL where data is unstructured.",
+E2E_DATE_s,Date when the dump occurred in SAP (YYYYMMDD format).,
+E2E_TIME_s,"Time when the dump occurred in SAP (numeric, may need formatting — e.g. 121 means 00:01:21).",
+E2E_HOST_s,"Application server host with SID and instance number (e.g. vchaa01l0c_CHA_02). Parse to extract hostname, SID, and instanceNr.",
+E2E_USER_s,SAP user ID under which the program was running when the dump occurred.,
+hostname,Application server hostname (e.g. vchaa01l0c).,
+SID_s,"SAP System ID (e.g. CHA, S4H).",
+instanceNr,SAP instance number (e.g. 02).,
+client_s,"SAP client number (e.g. 100, 400).",
+serverTimestamp [UTC],Timestamp of the dump event from the SAP server (UTC).,
+timestamp [UTC],Timestamp when this record was collected/ingested by the monitoring provider (UTC).,
+,,
+,,
+ SM37 Batch Job Log (aborted job detail),"Detailed analysis of aborted (STATUS=A) batch jobs — one row per aborted job. Enriches the basic job metadata from JOB_SELECT with step details from JOB_READ and log entries from JOBLOG_READ. Only jobs with status A (canceled/aborted) appear here.",
+LA table - SapNetweaver_BatchJobLog_CL (schema names),Description,
+TimeGenerated [UTC],"Ingestion timestamp in Log Analytics (UTC). Use for KQL time filtering.",
+PROVIDER_INSTANCE_s,"Provider instance name configured in AMS (e.g. cha-nw).",
+SAPMON_VERSION_s,"Version of the SAP monitoring provider that collected this record.",
+SID_s,"SAP System ID (e.g. CHA).",
+Time_Generated_t [UTC],"Provider-side timestamp when this record was generated (UTC).",
+client_s,"SAP client number (e.g. 100, 400).",
+error_message_s,"Additional diagnostic error text from the job log — any line that is NOT a standard marker (Job started/canceled, Step started) and NOT the runtime error line. Contains application-specific error details when SAP writes extra diagnostic output. Empty when the log only has standard marker lines.",
+failed_step_number_d,"Step number (1-based) where the job failed. If a step has STATUS=A, that step number. Otherwise the last step number. 0 if no steps were returned.",
+failed_step_program_s,"ABAP program name of the failed step (from STEPS table PROGRAM field). e.g. /RPM/FICO_INT_PLANNING, PLM_VC_AFL_SESSION_CLEANUP.",
+failed_step_user_s,"User ID (AUTHCKNAM) under which the failed step was authorized to run.",
+failed_step_variant_s,"Program variant/parameter of the failed step (VARIANT or PARAMETER field from BP20STEP). e.g. Z_VAR, Z_CAPEX.",
+hostname_s,"Application server hostname where the job ran (parsed from REAXSERVER).",
+instanceNr_s,"SAP instance number (parsed from REAXSERVER).",
+is_periodic_s,"Whether the job is periodic/recurring (X = Yes, empty = No).",
+job_end_date_s,"Date when the job ended (DD-MM-YYYY format from SAP ENDDATE).",
+job_end_time_s,"Time when the job ended (HH:MM:SS).",
+job_log_text_s,"Full job log text — all log entries from JOBLOG_READ concatenated with newlines. Contains the complete job execution narrative: job start, each step start, error lines, and job cancellation. Plain text format.",
+job_start_date_s,"Date when the job started (DD-MM-YYYY format from SAP STRTDATE).",
+job_start_time_s,"Time when the job started (HH:MM:SS).",
+job_status_s,"Job status — always 'A' (Aborted/Canceled) since only failed jobs are collected.",
+jobcount_s,"Unique technical job run identifier (e.g. 18562301). Combined with jobname_s uniquely identifies a job execution.",
+jobname_s,"Background job name (e.g. PPM_SERVICE, Y_AVC_SESSION_CLE, ESH100IX_*).",
+last_changed_by_s,"User who last modified the job definition.",
+last_changed_date_s,"Date when the job definition was last changed.",
+last_changed_time_s,"Time when the job definition was last changed.",
+released_by_user_s,"User who released the job for execution (e.g. SAPSYS).",
+released_date_s,"Date when the job was released.",
+released_time_s,"Time when the job was released.",
+runtime_error_s,"ABAP runtime error name extracted from the job log text (e.g. CALL_FUNCTION_OPEN_ERROR, UNCAUGHT_EXCEPTION, TIME_OUT). Extracted via regex from 'runtime error X' or 'system exception X' lines. Key field for RCA — correlates with ST22 dump Runtime_Error.",
+sapsid_s,"SAP System ID (same as SID_s, repeated for compatibility).",
+scheduled_by_user_s,"User who originally scheduled/created the job.",
+scheduled_date_s,"Date when the job was scheduled.",
+scheduled_time_s,"Time when the job was scheduled.",
+serverTimestamp_t [UTC],"Timestamp derived from job start date/time (UTC). Use for time-based correlation with other SAP tables.",
+timestamp_t [UTC],"Collection timestamp when this record was ingested (UTC).",
+total_steps_d,"Total number of steps in the job (from JOB_READ STEPS table). 0 if step retrieval failed or returned empty.",
+Type,"Log Analytics table type identifier: SapNetweaver_BatchJobLog_CL.",

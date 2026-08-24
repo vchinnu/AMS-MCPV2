@@ -1,0 +1,95 @@
+******open questions***********
+-  why ASCS status we are reading 5 mins old data? 
+ascsStatus == "Status Updated 5 mins earlier", "Status Updated 5 mins earlier",
+
+- why for availability we are readinf lasr 30 min data? - how we show if 1 min unavailability is there?
+| where serverTimestamp_t > ago(30m)
+
+*****
+
+*******Availability Status by SID**********
+
+SapNetweaver_GetSystemInstanceList_CL  
+
+SID_s,
+instanceNr_d, 
+hostname_s, 
+serverTimestamp_t, 
+features_s, 
+dispstatus_s
+
+
+//base query to set the status
+let baseQuery = SapNetweaver_GetSystemInstanceList_CL    
+    | summarize max(serverTimestamp_t) by SID_s, instanceNr_d, hostname_s, serverTimestamp_t, features_s, dispstatus_s
+    | extend instanceNr_s = tostring(toint(instanceNr_d))
+    | extend instanceNr_s = iff(strlen(instanceNr_s) == 2, instanceNr_s, strcat("0", instanceNr_s))    
+    | project instanceNr_d, hostname_s, serverTimestamp_t, features_s, dispstatus_s, SID_s
+    | extend Status = case(dispstatus_s == 'SAPControl-GREEN', "Available", 
+        dispstatus_s == 'SAPControl-RED', "Error", 
+        dispstatus_s == 'SAPControl-GRAY', "Offline",
+        dispstatus_s == 'SAPControl-YELLOW', "Not Functional",
+        "")
+    | extend Status = iff(serverTimestamp_t > ago(5m), Status, "Status Updated 5 mins earlier");
+//get the status from the ASCS = MESSAGESERVER + ENQUE
+let ascsStatusResult = baseQuery
+    | where features_s has tolower("MESSAGESERVER|ENQUE") or features_s has tolower("WEBDISP") or features_s has tolower("TREX")
+    | extend Rank = case(dispstatus_s == 'SAPControl-GREEN', 3, 
+        dispstatus_s == 'SAPControl-RED', 0, 
+        dispstatus_s == 'SAPControl-GRAY', 1,
+        dispstatus_s == 'SAPControl-YELLOW', 2, 0)   
+    | project ascsdispStatus = dispstatus_s, SID_s, serverTimestamp_t, ascsStatus = Status, features_s 
+    | summarize arg_max(serverTimestamp_t, *) by SID_s;
+//get the count of app server which are running in the system
+let availableAppServer = SapNetweaver_GetSystemInstanceList_CL 
+| where features_s has "ICMAN" and dispstatus_s == "SAPControl-GREEN"
+| summarize arg_max(serverTimestamp_t,*) by SID_s, features_s, dispstatus_s, hostname_s
+| summarize count() by SID_s, hostname_s, dispstatus_s;
+let availableAppServerCount = toscalar(availableAppServer | summarize count());
+//get the status from the app server = ICMAN
+let appStatusResult = baseQuery
+    | where features_s has tolower("ICMAN") or features_s has tolower("WEBDISP") or features_s has tolower("TREX")
+    | extend Rank = case(dispstatus_s == 'SAPControl-GREEN', 0, 
+        dispstatus_s == 'SAPControl-RED', 3, 
+        dispstatus_s == 'SAPControl-GRAY', 2,
+        dispstatus_s == 'SAPControl-YELLOW', 1, 0)   
+    | project appdispStatus = dispstatus_s, SID_s, serverTimestamp_t, appStatus = Status, features_s, Rank
+    | summarize arg_max(Rank, *) by SID_s;
+// join both the result where SID is same and check if any one of the app server is up and running
+// display green otherwise show the status as partially running
+ascsStatusResult
+| join kind=inner appStatusResult on SID_s
+| extend NewStatus =  case(
+    ascsdispStatus == "SAPControl-GREEN" and ascsStatus == "Status Updated 5 mins earlier", "Status Updated 5 mins earlier",
+    ascsdispStatus == "SAPControl-GREEN" and appdispStatus == "SAPControl-GREEN", "Available",
+    ascsdispStatus == "SAPControl-GREEN" and appdispStatus == "SAPControl-GRAY" and availableAppServerCount==0, "Offline",
+    ascsdispStatus == "SAPControl-GREEN" and appdispStatus == "SAPControl-GRAY", "Partially Running",
+    ascsdispStatus == "SAPControl-GREEN" and appdispStatus == "SAPControl-YELLOW", "Not Functional",
+    ascsdispStatus == "SAPControl-GREEN" and appdispStatus == "SAPControl-RED", "Error",
+    ascsdispStatus <> "SAPControl-GREEN", "Offline", "Unknown"
+    )
+| project dispstatus_s = appdispStatus, SID_s, serverTimestamp_t, Status = NewStatus;
+
+
+****** Availability Trend ***********
+
+SapNetweaver_GetSystemInstanceList_CL
+SID_s
+hostname_s, 
+instanceNr_d
+serverTimestamp_t
+dispstatus_s
+
+
+SapNetweaver_GetSystemInstanceList_CL
+| where serverTimestamp_t > ago(30m)
+| where SID_s == '{selectedSID}' or '*' == '{selectedSID}'
+| project-away hostname_s, instanceNr_d
+| extend Status = case(dispstatus_s == 'SAPControl-GREEN', 0,
+                        dispstatus_s == 'SAPControl-YELLOW', 1,
+                        dispstatus_s == 'SAPControl-RED', 2,3 )
+| summarize availability=countif(Status == 0), total=count() by SID_s, timestamp_t
+| extend availabilityPct = round(toreal(availability) / toreal(total) * 100, 3)
+| summarize availability=sum(availability), total=sum(total), availabilityTrend=make_list(availabilityPct) by SID_s
+| extend availability = round(toreal(availability) / toreal(total) * 100, 3)
+| project-away total
