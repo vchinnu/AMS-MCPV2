@@ -25,6 +25,9 @@ _classified_types_str = " | ".join(sorted(get_all_analysis_types()))
 mcp = FastMCP(
     name="sap-rca-server",
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    # Foundry Agent Service issues each MCP call as an independent request and does not
+    # replay mcp-session-id, so stateful mode fails with "Missing session ID".
+    stateless_http=True,
     instructions=(
         "You are an SAP observability assistant. "
         "Preferred workflow: "

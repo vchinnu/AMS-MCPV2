@@ -28,7 +28,13 @@ test_output.txt
 
 # Old/backup files
 old/
+backup_required/
 
 # Temp files
 .tmp_token.txt
 ~$*
+*.pptx
+
+# Video artifacts
+hack-video/
+*.mp4

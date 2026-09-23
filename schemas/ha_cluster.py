@@ -36,7 +36,17 @@ SCHEMAS: dict[str, dict] = {
             },
             "hostname_s": {
                 "type": "string",
-                "description": "Cluster node that reported this metric.",
+                "description": "Cluster node that reported this metric (actual OS hostname, e.g. 'chascs01l0c2').",
+            },
+            "instance_s": {
+                "type": "string",
+                "description": (
+                    "AMS provider instance name configured for this HA cluster provider "
+                    "(e.g. 'CHA-DB-Cluster', 'HA-CHA-chascs01l0c2'). Groups metrics by the "
+                    "monitored cluster/node pair as registered in AMS. Use hostname_s for the "
+                    "real node name and instance_s to scope to one provider registration; "
+                    "resolve it via COMMON_VM_ArmId_Mapping_CL.PROVIDER_INSTANCE_s."
+                ),
             },
             "labels_s": {
                 "type": "string",

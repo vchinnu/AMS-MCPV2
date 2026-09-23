@@ -26,6 +26,7 @@ from schemas.sap_application  import SCHEMAS as _SAP_APP
 from schemas.os_infrastructure import SCHEMAS as _OS_INFRA
 from schemas.ha_cluster        import SCHEMAS as _HA_CLUSTER
 from schemas.hana_db           import SCHEMAS as _HANA_DB
+from schemas.common            import SCHEMAS as _COMMON
 
 # Single merged registry — all tools and the rest of the codebase use this.
 SCHEMA_REGISTRY: dict[str, dict] = {
@@ -33,6 +34,7 @@ SCHEMA_REGISTRY: dict[str, dict] = {
     **_OS_INFRA,
     **_HA_CLUSTER,
     **_HANA_DB,
+    **_COMMON,
 }
 
 # ── Classified analysis types ──────────────────────────────────────────────────
@@ -49,6 +51,13 @@ CLASSIFIED_ANALYSIS_TYPES: frozenset[str] = frozenset({
     "availability",              # SapNetweaver_GetSystemInstanceList_CL — SAP instance up/down status
     "SAP_system_availability",   # alias — matches schema definition for GetSystemInstanceList_CL
     "SAP_Process_Availability",  # SapNetweaver_GetProcessList_CL — SAP process-level health
+    "workprocess_status",        # SapNetweaver_ABAPGetWPTable_CL — SM50/SM66 work process status
+    "Failed_updates",            # SapNetweaver_FailedUpdates_CL  — SM13 failed V1/V2/V3 updates
+    "system_performance",        # SapNetweaver_SMON_CL           — SMON performance snapshots
+    "workload_statistics",       # SapNetweaver_SWNC_CL           — ST03N workload statistics
+    "transactional_rfc",         # SapNetweaver_TransactionalRfc_CL — SM58 tRFC errors
+    "queue_monitoring",          # SapNetweaver_*Queues_CL         — SMQ1/SMQ2/Dispatcher queues
+    "transport_management",      # SapNetweaver_STMS_*_CL          — STMS transport requests/objects
     # "hana_db",     # HANA DB tables                    — add when handler is implemented
 })
 

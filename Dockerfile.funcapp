@@ -1,0 +1,31 @@
+# ── SAP RCA MCP Server — Azure Function App (Docker, matching AMS pattern) ────
+FROM mcr.microsoft.com/azure-functions/python:4-python3.11
+
+ENV AzureWebJobsScriptRoot=/home/site/wwwroot \
+    AzureFunctionsJobHost__Logging__Console__IsEnabled=true \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /home/site/wwwroot
+
+# Dependencies (layer caching)
+COPY requirements.funcapp.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Azure Functions entry point
+COPY function_app.py .
+COPY host.json .
+
+# MCP server core (unchanged from Container App deployment)
+COPY config.py .
+COPY la_client.py .
+COPY schema_registry.py .
+COPY server.py .
+COPY domain_knowledge.py .
+COPY domain_knowledge_ha.py .
+COPY domain_knowledge_os.py .
+COPY domain_registry.py .
+
+# Schema definitions, tools, analyzers
+COPY schemas/ ./schemas/
+COPY tools/ ./tools/
+COPY analyzers/ ./analyzers/

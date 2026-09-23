@@ -190,6 +190,10 @@ SCHEMAS: dict[str, dict] = {
                 "type": "string",
                 "description": "SAP client number (e.g., '100', '300').",
             },
+            "sapsid_s": {
+                "type": "string",
+                "description": "Alternate SAP SID column (same value as SID_s).",
+            },
         },
         "kql_hints": [
             "ALWAYS filter by the sid_column shown in this schema (SID_s for this table): | where SID_s == '<sid>'",
@@ -383,6 +387,33 @@ SCHEMAS: dict[str, dict] = {
                 "type": "string",
                 "description": "SAP client number.",
             },
+            "AUTHCKNAM_s": {
+                "type": "string",
+                "description": "Authorization check user name — the user authorized to run the job step.",
+            },
+            "JOBNAME_g": {
+                "type": "string",
+                "description": "GUID version of the job name (internal unique identifier).",
+            },
+            "PREDNUM_d": {
+                "type": "real",
+                "description": "Predecessor job count — number of predecessor job links.",
+            },
+            "SUCCNUM_d": {
+                "type": "real",
+                "description": "Successor/success count — number of successor job links.",
+            },
+            "BTCSYSTEM_s": {
+                "type": "string",
+                "description": "Batch system identifier (e.g. target system for distributed scheduling).",
+            },
+            "EXECSERVER_s": {
+                "type": "string",
+                "description": (
+                    "Actual execution server — where the job step ran. "
+                    "Distinct from REAXSERVER_s (requested server). Compare to detect scheduling overrides."
+                ),
+            },
             "serverTimestamp_t": {
                 "type": "datetime",
                 "description": "UTC collection timestamp. Use for KQL time filters.",
@@ -498,9 +529,29 @@ SCHEMAS: dict[str, dict] = {
                 "type": "string",
                 "description": "SAP System ID. ALWAYS filter: | where SID_s == '<sid>'",
             },
+            "hostname_s": {
+                "type": "string",
+                "description": "Application server hostname where the event occurred.",
+            },
+            "instanceNr_s": {
+                "type": "string",
+                "description": "SAP instance number.",
+            },
+            "client_s": {
+                "type": "string",
+                "description": "SAP client number.",
+            },
             "Transaction_s": {
                 "type": "string",
                 "description": "SAP transaction code in context (if available).",
+            },
+            "sapsid_s": {
+                "type": "string",
+                "description": "Alternate SAP SID column (same value as SID_s).",
+            },
+            "serverTimestamp_t": {
+                "type": "datetime",
+                "description": "SAP AMS collection timestamp (UTC). Alternate time reference.",
             },
             "TimeGenerated": {
                 "type": "datetime",
@@ -582,6 +633,7 @@ SCHEMAS: dict[str, dict] = {
             },
             "httpPort_d": {"type": "real", "description": "HTTP port of the instance."},
             "httpsPort_d": {"type": "real", "description": "HTTPS port of the instance."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column (same value as SID_s)."},
             "serverTimestamp_t": {
                 "type": "datetime",
                 "description": "Collection timestamp — use for KQL time filters.",
@@ -648,6 +700,10 @@ SCHEMAS: dict[str, dict] = {
                 "description": "Timestamp when the process was last started.",
             },
             "sapsid_s": {"type": "string", "description": "SAP System ID (alternate field)."},
+            "serverTimestamp_t": {
+                "type": "datetime",
+                "description": "SAP AMS collection timestamp (UTC). Alternate time reference.",
+            },
             "timestamp_t": {
                 "type": "datetime",
                 "description": "Collection timestamp in UTC — use for KQL time filters.",
@@ -712,13 +768,26 @@ SCHEMAS: dict[str, dict] = {
             "Client_s": {"type": "string", "description": "SAP client number."},
             "Action_s": {"type": "string", "description": "Current action by the work process."},
             "Table_s": {"type": "string", "description": "Table being accessed by the work process."},
-            "Cpu_s": {"type": "string", "description": "CPU time consumed by this work process."},
+            "Cpu_s": {
+                "type": "string",
+                "description": "Cumulative CPU time since work process start (format H:MM:SS). Sum of CPU system time + CPU user time. Use delta between snapshots for per-program CPU attribution.",
+            },
+            "Time_s": {
+                "type": "string",
+                "description": "Elapsed runtime of the current request in seconds. High values indicate long-running requests. Use with Cpu_s delta to compute CPU efficiency (CPU-bound vs I/O-bound).",
+            },
+            "Start_s": {
+                "type": "string",
+                "description": "Auto-restart flag (yes/no) — whether the WP restarts automatically after failure.",
+            },
             "Err_s": {
                 "type": "string",
                 "description": "Error indicator — number of times the work process has been restarted.",
             },
             "Sem_s": {"type": "string", "description": "Semaphore number if the WP holds a lock."},
             "Pid_d": {"type": "real", "description": "OS-level process ID of the work process."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column (same value as SID_s)."},
+            "instanceNr_s": {"type": "string", "description": "SAP instance number as string (alternate to instanceNr_d)."},
             "serverTimestamp_t": {
                 "type": "datetime",
                 "description": "Collection timestamp — use for KQL time filters.",
@@ -732,6 +801,8 @@ SCHEMAS: dict[str, dict] = {
             "Reason_s == 'PRIV' means the WP is in private memory mode — too many PRIV WPs starves other users.",
             "Cross-reference Program_s with ST22 short dumps to confirm which program caused a WP crash.",
             "Err_s > 0 means the WP has been restarted — indicates instability on that app server.",
+            "Time_s contains the elapsed runtime (seconds) of the current request — use to detect long-running requests and compute CPU efficiency.",
+            "For CPU attribution: pass CPU core count in context. Query SMON_CL for AVAILCPUS_d first (preferred), fall back to Prometheus_OSExporter_CL if SMON has no data.",
         ],
     },
 
@@ -824,6 +895,9 @@ SCHEMAS: dict[str, dict] = {
             "VBETRANSLN_s": {"type": "string", "description": "External transaction line number."},
             "VBDATFM_s": {"type": "string", "description": "Date format indicator."},
             "VBDCPFM_s": {"type": "string", "description": "Decimal format indicator."},
+            "VBKEY_s": {"type": "string", "description": "Update record key (string). Alternate to VBKEY_g GUID."},
+            "VBTRANSID_s": {"type": "string", "description": "Internal SAP transaction ID (string). Alternate to VBTRANSID_g GUID."},
+            "client_s": {"type": "string", "description": "SAP client number."},
         },
         "kql_hints": [
             "ALWAYS filter by the sid_column shown in this schema (SID_s for this table): | where SID_s == '<sid>'",
@@ -1196,6 +1270,10 @@ SCHEMAS: dict[str, dict] = {
                     "0 if step retrieval failed or returned empty."
                 ),
             },
+            "jobname_g": {
+                "type": "string",
+                "description": "GUID version of the job name (internal unique identifier).",
+            },
         },
         "kql_hints": [
             "ALWAYS filter by the sid_column shown in this schema (SID_s for this table): | where SID_s == '<sid>'",
@@ -1211,6 +1289,595 @@ SCHEMAS: dict[str, dict] = {
             "Use is_periodic_s == 'X' to focus on recurring jobs that keep failing.",
             "Correlate hostname_s + time window with OS metrics and system logs for infrastructure root cause.",
             "bin(TimeGenerated, 1h) to detect patterns of job failures across time.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 10 — SapNetweaver_SMON_CL  (System Monitor — OS/App performance snapshot)
+    # Schema source: LA workspace getschema + take 1
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_SMON_CL": {
+        "table_name": "SapNetweaver_SMON_CL",
+        "domain": "sap_application",
+        "description": (
+            "SAP System Monitor (SMON) — periodic snapshots of application server performance "
+            "including CPU usage, memory, work process utilization, queue lengths, and session counts. "
+            "Collected every 2 minutes per app server. Use to detect resource exhaustion patterns "
+            "(CPU, memory, WP starvation) correlating with application errors."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — SMON data",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "system_performance",
+        "key_columns": ["SID_s", "hostname_s", "CPU_CONS_d", "FREE_MEM_PERC_d", "ACT_WPS_d", "PRIVWPNO_d"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter: | where SID_s == '<sid>'"},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "hostname_s": {"type": "string", "description": "Application server hostname."},
+            "instanceNr_s": {"type": "string", "description": "SAP instance number (e.g. '01')."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "SERVER_s": {"type": "string", "description": "Server identifier in format hostname_SID_instanceNr."},
+            "DATUM_s": {"type": "string", "description": "Date of the SMON snapshot (YYYYMMDD format)."},
+            "TIME_s": {"type": "string", "description": "Time of the SMON snapshot (HHMMSS format)."},
+            "ACT_DIA_d": {"type": "real", "description": "Number of active dialog work processes at snapshot time."},
+            "ACT_WPS_d": {"type": "real", "description": "Total active work processes (all types) at snapshot time."},
+            "AVAILCPUS_d": {"type": "real", "description": "Number of available CPU cores on this app server."},
+            "CPU_CONS_d": {"type": "real", "description": "CPU consumption % at snapshot time. Values >80% indicate CPU contention."},
+            "DELTATIMEMS_d": {"type": "real", "description": "Time delta in ms between this and prior snapshot (should be ~60000 for 1min interval)."},
+            "DIAAVG20_d": {"type": "real", "description": "Average dialog response time over last 20 seconds (ms)."},
+            "DIAAVG60_d": {"type": "real", "description": "Average dialog response time over last 60 seconds (ms)."},
+            "DIAQ_d": {"type": "real", "description": "Dialog queue length — number of requests waiting for a dialog WP. >0 sustained = WP exhaustion."},
+            "EMALLOC_d": {"type": "real", "description": "Extended memory allocated (MB). High values indicate memory pressure."},
+            "EMATTACH_d": {"type": "real", "description": "Extended memory attached/in-use (sessions holding EM)."},
+            "ENQQ_d": {"type": "real", "description": "Enqueue queue length — pending lock requests. >0 = enqueue server bottleneck."},
+            "FREE_MEM_MB_d": {"type": "real", "description": "Free physical memory on the server (MB)."},
+            "FREE_MEM_MB_INC_FS_d": {"type": "real", "description": "Free memory including filesystem cache (MB)."},
+            "FREE_MEM_PERC_d": {"type": "real", "description": "Free memory percentage. <20% indicates memory pressure."},
+            "HEAPSUMKB_d": {"type": "real", "description": "Total heap memory in use by work processes (KB). High = PRIV mode risk."},
+            "IDLE_TOTAL_d": {"type": "real", "description": "CPU idle % (all cores). Low idle = high CPU usage."},
+            "PAGE_IN_PERC_d": {"type": "real", "description": "Paging in rate %. >0 indicates memory thrashing."},
+            "PAGE_OUT_PERC_d": {"type": "real", "description": "Paging out rate %. >0 indicates memory thrashing."},
+            "PRIVWPNO_d": {"type": "real", "description": "Number of work processes in PRIV (private) mode. >2-3 = risk of WP exhaustion."},
+            "QINLENGTH_d": {"type": "real", "description": "Inbound qRFC queue length."},
+            "QOUTLENGTH_d": {"type": "real", "description": "Outbound qRFC queue length."},
+            "READY_TIME_d": {"type": "real", "description": "Dispatcher ready time — time requests waited in dispatcher queue (ms)."},
+            "SESSIONS_d": {"type": "real", "description": "Number of active user sessions on this app server."},
+            "SM12_CNT_d": {"type": "real", "description": "Number of SM12 lock entries. High count may indicate orphan locks."},
+            "STEAL_TIME_d": {"type": "real", "description": "CPU steal time %. >0 on VMs indicates hypervisor contention."},
+            "SYS_TOTAL_d": {"type": "real", "description": "System (kernel) CPU %. High = OS overhead."},
+            "TRFC_FREE_d": {"type": "real", "description": "Free tRFC worker threads. Low = tRFC processing bottleneck."},
+            "UPDQ_d": {"type": "real", "description": "Update queue length — pending V1/V2 updates. >0 sustained = update WP shortage."},
+            "USERS_d": {"type": "real", "description": "Number of logged-in users on this app server."},
+            "USR_TOTAL_d": {"type": "real", "description": "User (application) CPU %. High = application workload."},
+            "QUEUE_FLAG_s": {"type": "string", "description": "Flag indicating if queue statistics are included in this record."},
+            "SM50_FLAG_s": {"type": "string", "description": "Flag indicating if SM50 WP data is included."},
+            "ST02_FLAG_s": {"type": "string", "description": "Flag indicating if ST02 buffer data is included."},
+            "GUID_s": {"type": "string", "description": "Unique identifier for this SMON record."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp (UTC)."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record creation timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "CPU_CONS_d > 80 sustained = CPU bottleneck. Correlate with ACT_WPS_d to see if WP load is driving CPU.",
+            "FREE_MEM_PERC_d < 20 = memory pressure. Check PAGE_IN_PERC_d and PAGE_OUT_PERC_d for swapping.",
+            "PRIVWPNO_d > 3 = risk of work process exhaustion. Correlate with HEAPSUMKB_d.",
+            "DIAQ_d > 0 sustained = dialog WP starvation — users are waiting.",
+            "UPDQ_d > 0 sustained = update work process shortage — SM13 failures may follow.",
+            "STEAL_TIME_d > 5 on VMs = hypervisor/co-tenant interference.",
+            "Summarize avg(CPU_CONS_d), avg(FREE_MEM_PERC_d), max(PRIVWPNO_d), max(DIAQ_d) by bin(serverTimestamp_t, 5m), hostname_s for trending.",
+            "Cross-reference high CPU/memory periods with ST22 dump spikes and SM37 job failures.",
+            "AVAILCPUS_d provides the CPU core count per host — use this for WP CPU attribution (pass as 'AVAILCPUS_d=N' in context when querying ABAPGetWPTable_CL).",
+            "CPU_CONS_d + USR_TOTAL_d can cross-validate WP-derived CPU calculations (pass as 'CPU_CONS_d=N' in context).",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 11 — SapNetweaver_EnqueueRead_CL  (SM12 Enqueue Lock Monitor)
+    # Schema source: LA workspace take 1
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_EnqueueRead_CL": {
+        "table_name": "SapNetweaver_EnqueueRead_CL",
+        "domain": "sap_application",
+        "description": (
+            "SM12 lock table entries — currently held SAP enqueue locks. "
+            "Each row is one active lock entry. Use to identify lock contention, "
+            "orphaned locks, or users/jobs holding critical locks that block others."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — Enqueue Read Lock Metrics",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "enqueue_locks",
+        "key_columns": ["SID_s", "GNAME_s", "GOBJ_s", "GUNAME_s", "GMODE_s", "GTHOST_s"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "hostname_s": {"type": "string", "description": "Application server hostname where the lock was acquired."},
+            "instanceNr_s": {"type": "string", "description": "SAP instance number."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "GNAME_s": {"type": "string", "description": "Lock object name (SAP enqueue object, e.g. FARR_S_KEYPP_BUKRS_ENQ, EMFJS_JOBID)."},
+            "GOBJ_s": {"type": "string", "description": "Lock object table/argument name (underlying DB table, e.g. EFARR_KEYPPBUKRS)."},
+            "GARG_s": {"type": "string", "description": "Lock argument — the specific key value locked (client + key fields concatenated)."},
+            "GTARG_s": {"type": "string", "description": "Transaction lock argument (same or similar to GARG_s in most cases)."},
+            "GMODE_s": {"type": "string", "description": "Lock mode: E=Exclusive, S=Shared, X=Exclusive non-cumulative, O=Optimistic."},
+            "GUNAME_s": {"type": "string", "description": "User holding the lock. Key for identifying who is blocking."},
+            "GCLIENT_s": {"type": "string", "description": "Client number for the lock entry."},
+            "GTHOST_s": {"type": "string", "description": "Host_SID_InstanceNr of the transaction holding the lock."},
+            "GTSYSNR_s": {"type": "string", "description": "System number of the lock holder."},
+            "GTDATE_s": {"type": "string", "description": "Date when lock was acquired (YYYY-MM-DD)."},
+            "GTTIME_s": {"type": "string", "description": "Time when lock was acquired (HH:MM:SS)."},
+            "GTUSEC_s": {"type": "string", "description": "Microsecond precision of lock acquisition time."},
+            "GTWP_s": {"type": "string", "description": "Work process number holding the lock."},
+            "GUSE_d": {"type": "real", "description": "Lock use count."},
+            "GUSETXT_s": {"type": "string", "description": "Lock use text counter."},
+            "GUSEVB_d": {"type": "real", "description": "Lock use in update (VB) context count."},
+            "GUSEVBT_s": {"type": "string", "description": "Lock use text counter for update context."},
+            "GUSR_s": {"type": "string", "description": "User session identifier (timestamp + WP + host encoded)."},
+            "GUSRVB_s": {"type": "string", "description": "Update session identifier (timestamp + WP + host encoded)."},
+            "GBCKTYPE_s": {"type": "string", "description": "Lock backup type indicator."},
+            "GTCODE_s": {"type": "string", "description": "Transaction code that acquired the lock. Key for identifying which transaction holds blocking locks."},
+            "hostname_g": {"type": "string", "description": "GUID hostname identifier."},
+            "GARG_g": {"type": "string", "description": "GUID lock argument (alternate to GARG_s)."},
+            "GTARG_g": {"type": "string", "description": "GUID transaction argument (alternate to GTARG_s)."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timeStamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "GMODE_s == 'E' (Exclusive) locks block other users — focus on these for contention analysis.",
+            "Summarize count() by GNAME_s, GUNAME_s to find who holds the most locks and on which objects.",
+            "Long-held locks: compare GTDATE_s/GTTIME_s with current time — locks older than the collection interval may be orphaned.",
+            "Cross-reference GUNAME_s with SM37 batch job users to identify if background jobs hold locks.",
+            "High lock count on a single object may cause SM13 update failures (lock collision).",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 12 — SapNetweaver_OutboundQueues_CL  (SMQ1 Outbound qRFC Queues)
+    # Schema source: LA workspace take 1
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_OutboundQueues_CL": {
+        "table_name": "SapNetweaver_OutboundQueues_CL",
+        "domain": "sap_application",
+        "description": (
+            "SMQ1 outbound qRFC queue monitoring. Each row is one outbound queue with its "
+            "current depth and destination. Use to identify stuck queues that prevent data "
+            "from being sent to downstream systems (e.g. BW, GTS, SCM)."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — Outbound Queues",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "queue_monitoring",
+        "key_columns": ["SID_s", "QNAME_s", "DEST_s", "QDEEP_d"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "instanceNr_s": {"type": "string", "description": "SAP instance number."},
+            "QNAME_s": {"type": "string", "description": "Queue name — identifies the data flow (e.g. BW3000ASSET_ATTR_TEXT). Contains destination + data type info."},
+            "DEST_s": {"type": "string", "description": "RFC destination the queue sends to (e.g. BIPPRD300). Empty if destination is embedded in QNAME_s."},
+            "QDEEP_d": {"type": "real", "description": "Queue depth — number of entries waiting to be sent. >0 means queue has pending items. Very high = stuck queue."},
+            "MANDT_s": {"type": "string", "description": "SAP client (mandant) number for the queue entry."},
+            "FDATE_s": {"type": "string", "description": "First entry date in queue (YYYY-MM-DD). 0000-00-00 if never processed."},
+            "FTIME_s": {"type": "string", "description": "First entry time in queue (HH:MM:SS)."},
+            "FQCOUNT_s": {"type": "string", "description": "First entry queue counter."},
+            "LDATE_s": {"type": "string", "description": "Last entry date in queue (YYYY-MM-DD)."},
+            "LTIME_s": {"type": "string", "description": "Last entry time in queue (HH:MM:SS)."},
+            "LQCOUNT_s": {"type": "string", "description": "Last entry queue counter."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "QDEEP_d > 0 indicates pending queue entries — large values mean the queue is stuck or slow.",
+            "Summarize max(QDEEP_d) by QNAME_s, DEST_s to find the most backlogged queues.",
+            "Growing QDEEP_d over time (use bin + max) indicates the destination system is unreachable or slow.",
+            "Cross-reference DEST_s with SapNetweaver_TransactionalRfc_CL for RFC connection failures.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 13 — SapNetweaver_InboundQueues_CL  (SMQ2 Inbound qRFC Queues)
+    # Schema source: LA workspace take 1
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_InboundQueues_CL": {
+        "table_name": "SapNetweaver_InboundQueues_CL",
+        "domain": "sap_application",
+        "description": (
+            "SMQ2 inbound qRFC queue monitoring. Each row is one inbound queue with its "
+            "current depth. Use to identify stuck inbound queues that prevent incoming "
+            "data from being processed (e.g. IDocs, master data replication)."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — Inbound Queues",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "queue_monitoring",
+        "key_columns": ["SID_s", "QNAME_s", "QDEEP_d"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "instanceNr_s": {"type": "string", "description": "SAP instance number."},
+            "QNAME_s": {"type": "string", "description": "Queue name — identifies the inbound data flow (e.g. MDS_BUPA_CUST00001)."},
+            "QDEEP_d": {"type": "real", "description": "Queue depth — number of entries waiting to be processed. >0 = pending items."},
+            "MANDT_s": {"type": "string", "description": "SAP client (mandant) number."},
+            "FDATE_s": {"type": "string", "description": "First entry date (YYYY-MM-DD)."},
+            "FTIME_s": {"type": "string", "description": "First entry time (HH:MM:SS)."},
+            "FQCOUNT_s": {"type": "string", "description": "First entry queue counter."},
+            "LDATE_s": {"type": "string", "description": "Last entry date (YYYY-MM-DD)."},
+            "LTIME_s": {"type": "string", "description": "Last entry time (HH:MM:SS)."},
+            "LQCOUNT_s": {"type": "string", "description": "Last entry queue counter."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "QDEEP_d > 0 indicates pending inbound items — large values mean processing is blocked.",
+            "Summarize max(QDEEP_d) by QNAME_s to find the most backlogged inbound queues.",
+            "Growing queue depth over time indicates the receiving system cannot keep up.",
+            "Check SapNetweaver_BatchJobs_CL for queue processing jobs (RBDAPP01, TRFC_QIN_DEST) that may have failed.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 14 — SapNetweaver_TransactionalRfc_CL  (SM58 tRFC/aRFC Monitor)
+    # Schema source: LA workspace take 1
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_TransactionalRfc_CL": {
+        "table_name": "SapNetweaver_TransactionalRfc_CL",
+        "domain": "sap_application",
+        "description": (
+            "SM58 transactional RFC (tRFC) monitoring — failed or pending tRFC/aRFC calls. "
+            "Each row is one tRFC LUW (logical unit of work) that is in error or pending state. "
+            "Use to identify RFC communication failures between SAP systems."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — Transactional RFC",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "transactional_rfc",
+        "key_columns": ["SID_s", "ARFCDEST_s", "ARFCSTATE_s", "ARFCFNAM_s", "ARFCMSG_s", "ARFCUSER_s"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "hostname_s": {"type": "string", "description": "Application server hostname."},
+            "instanceNr_s": {"type": "string", "description": "SAP instance number."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "ARFCDEST_s": {"type": "string", "description": "RFC destination name (e.g. GTPE4H300). Identifies the target system."},
+            "ARFCFNAM_s": {"type": "string", "description": "Function module name being called via tRFC (e.g. /SAPSLL/API_6800_CIBD_SYNCH)."},
+            "ARFCSTATE_s": {"type": "string", "description": "tRFC status: SYSFAIL=system failure, CPICERR=CPIC error, RECORDED=pending, EXECUTED=success."},
+            "ARFCMSG_s": {"type": "string", "description": "Error message text. Key for root cause (e.g. 'Incorrect callup of function module...')."},
+            "ARFCUSER_s": {"type": "string", "description": "User under whose authorization the tRFC was triggered."},
+            "ARFCRHOST_s": {"type": "string", "description": "Remote host (sending application server)."},
+            "ARFCDATUM_s": {"type": "string", "description": "Date when the tRFC was created (YYYYMMDD)."},
+            "ARFCUZEIT_s": {"type": "string", "description": "Time when the tRFC was created (HHMMSS)."},
+            "ARFCRETRYS_s": {"type": "string", "description": "Number of retry attempts. High count = persistent failure."},
+            "ARFCLUWCNT_s": {"type": "string", "description": "LUW (logical unit of work) counter for this tRFC entry."},
+            "ARFCPID_s": {"type": "string", "description": "Process/program ID that initiated the tRFC."},
+            "ARFCRESERV_s": {"type": "string", "description": "Calling program (report name, e.g. RBDAPP01)."},
+            "ARFCIPID_s": {"type": "string", "description": "Internal process identifier."},
+            "ARFCTIDCNT_s": {"type": "string", "description": "Transaction ID counter."},
+            "ARFCTIME_s": {"type": "string", "description": "Internal time identifier."},
+            "HASH_s": {"type": "string", "description": "Hash value for deduplication/identification of the tRFC entry."},
+            "ARFCRETURN_s": {"type": "string", "description": "RFC return code. Key for diagnosing the specific failure reason."},
+            "ARFCTCODE_s": {"type": "string", "description": "Transaction code that triggered the tRFC call. Use for business-context correlation."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "Filter ARFCSTATE_s == 'SYSFAIL' or ARFCSTATE_s == 'CPICERR' for failed RFC calls.",
+            "Summarize count() by ARFCDEST_s, ARFCSTATE_s, ARFCMSG_s to find which destinations are failing and why.",
+            "ARFCRETRYS_s > 0 indicates persistent failures — the system keeps retrying without success.",
+            "Cross-reference ARFCDEST_s with SMQ1 (OutboundQueues) — same destinations may show queue buildup.",
+            "ARFCMSG_s contains the actual error reason — search for 'connection', 'timeout', 'authorization' keywords.",
+            "Cross-reference ARFCFNAM_s with ST22 dumps — CALL_FUNCTION_OPEN_ERROR dumps relate to RFC failures.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 15 — SapNetweaver_SWNC_CL  (ST03N Workload Statistics)
+    # Schema source: LA workspace take 1
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_SWNC_CL": {
+        "table_name": "SapNetweaver_SWNC_CL",
+        "domain": "sap_application",
+        "description": (
+            "ST03N workload statistics — aggregated performance metrics per task type "
+            "(Dialog, Background, Update, RFC, etc.) per collection interval (10 minutes). "
+            "Provides response time breakdown (CPU, DB, queue, roll-wait, processing) "
+            "and throughput counts. Use for performance trend analysis and SLA monitoring."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — SWNC workload data",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "workload_statistics",
+        "key_columns": ["SID_s", "Task_Type_Name_s", "ST03_Avg_Resp_Time_d", "Total_Steps_d", "ST03_DB_Time_d"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "Task_Type_s": {"type": "string", "description": "Task type code (hex-encoded, e.g. 0x{01}=Dialog)."},
+            "Task_Type_Name_s": {"type": "string", "description": "Human-readable task type: DIALOG, BACKGROUND, UPDATE, RFC, SPOOL, BUFFER_SYNC."},
+            "Total_Steps_d": {"type": "real", "description": "Total dialog steps (transactions) in this interval. Throughput indicator."},
+            "Total_Response_Time_d": {"type": "real", "description": "Sum of response times across all steps (ms). Divide by Total_Steps_d for average."},
+            "Total_CPU_Time_d": {"type": "real", "description": "Total CPU time consumed (ms)."},
+            "Total_DB_Time_d": {"type": "real", "description": "Total database time (ms). Dominant portion often."},
+            "Total_DB_Dir_Read_Time_d": {"type": "real", "description": "Total DB direct read time (ms)."},
+            "Total_DB_Dir_Read_Steps_d": {"type": "real", "description": "Total DB direct read operations (individual SQL calls)."},
+            "Total_DB_Seq_Read_Time_d": {"type": "real", "description": "Total DB sequential read time (ms). High = expensive table scans."},
+            "Total_DB_Seq_Read_Steps_d": {"type": "real", "description": "Total DB sequential read operations."},
+            "Total_DB_Chg_Time_d": {"type": "real", "description": "Total DB change (insert/update/delete) time (ms)."},
+            "Total_DB_Change_Steps_d": {"type": "real", "description": "Total DB change operations."},
+            "Total_DB_Proc_Time_d": {"type": "real", "description": "Total DB procedure call time (ms)."},
+            "Total_DB_Proc_Steps_d": {"type": "real", "description": "Total DB procedure call count."},
+            "Total_Processing_Time_d": {"type": "real", "description": "Total ABAP processing time (ms)."},
+            "Total_Roll_Wait_Time_d": {"type": "real", "description": "Total roll-wait time (ms) — time spent waiting for RFC responses or GUI roundtrips."},
+            "Total_Queue_Time_d": {"type": "real", "description": "Total dispatcher queue wait time (ms). High = WP shortage."},
+            "Total_GUI_Time_d": {"type": "real", "description": "Total GUI rendering/transfer time (ms)."},
+            "Total_GUI_Net_Time_d": {"type": "real", "description": "Total GUI network time (ms)."},
+            "Total_GUI_Steps_d": {"type": "real", "description": "Total GUI roundtrip steps."},
+            "PHYCALLS_d": {"type": "real", "description": "Total physical DB calls."},
+            "PHYREADCNT_d": {"type": "real", "description": "Total physical DB read operations."},
+            "PHYCHNGREC_d": {"type": "real", "description": "Total physical DB change records."},
+            "ST03_Avg_Resp_Time_d": {"type": "real", "description": "Average response time per step (ms). Primary SLA metric."},
+            "ST03_CPU_Time_d": {"type": "real", "description": "CPU time as fraction of response time (0-1)."},
+            "ST03_DB_Time_d": {"type": "real", "description": "DB time as fraction of response time (0-1). >0.5 = DB-bound."},
+            "ST03_Processing_Time_d": {"type": "real", "description": "Processing time fraction (0-1)."},
+            "ST03_Queue_Time_d": {"type": "real", "description": "Queue time fraction (0-1). >0.01 = dispatcher contention."},
+            "ST03_RollWait_Time_d": {"type": "real", "description": "Roll-wait fraction (0-1). High = waiting for external responses."},
+            "ST03_Avg_DB_Dir_Time_d": {"type": "real", "description": "Average DB direct read time per step (ms)."},
+            "ST03_Avg_DB_Seq_Time_d": {"type": "real", "description": "Average DB sequential read time per step (ms)."},
+            "ST03_Avg_DB_Change_Time_d": {"type": "real", "description": "Average DB change time per step (ms)."},
+            "ST03_Avg_DB_Procedure_Time_d": {"type": "real", "description": "Average DB procedure time per step (ms)."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "Filter Task_Type_Name_s == 'DIALOG' for end-user interactive performance.",
+            "Filter Task_Type_Name_s == 'BACKGROUND' for batch processing performance.",
+            "ST03_Avg_Resp_Time_d > 1000ms for dialog = poor user experience.",
+            "ST03_DB_Time_d > 0.6 means the workload is heavily DB-bound — investigate HANA load.",
+            "ST03_Queue_Time_d > 0.01 indicates dispatcher/WP shortage — correlate with SMON DIAQ_d.",
+            "Summarize avg(ST03_Avg_Resp_Time_d), sum(Total_Steps_d) by bin(serverTimestamp_t, 10m), Task_Type_Name_s for performance trending.",
+            "Compare Total_DB_Seq_Read_Time_d vs Total_DB_Dir_Read_Time_d — high sequential = missing indexes or full table scans.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 16 — SapNetweaver_STMS_CL  (STMS Transport Requests)
+    # Schema source: LA workspace take 1
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_STMS_CL": {
+        "table_name": "SapNetweaver_STMS_CL",
+        "domain": "sap_application",
+        "description": (
+            "STMS Change & Transport System — transport request headers. "
+            "Each row is one transport request with its status and metadata. "
+            "Use to track code/config changes deployed to the system that may correlate with new errors."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — STMS Metrics",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "transport_management",
+        "key_columns": ["SID_s", "TRKORR_s", "TRSTATUS_s", "TRFUNCTION_s", "AS4USER_s"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "hostname_s": {"type": "string", "description": "Application server hostname."},
+            "instanceNr_s": {"type": "string", "description": "SAP instance number."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "TRKORR_s": {"type": "string", "description": "Transport request number (e.g. MS2K9A2VDY, SAPK-10013INASANWEE)."},
+            "TRSTATUS_s": {"type": "string", "description": "Transport status: R=Released, D=Modifiable, L=Not released, O=Release started, N=Not importable."},
+            "TRFUNCTION_s": {"type": "string", "description": "Transport type: K=Workbench, W=Customizing, T=TOC (transport of copies), D=Delivery (SAP patches)."},
+            "KORRDEV_s": {"type": "string", "description": "Transport layer (e.g. SYST=system layer, Z*=customer layer)."},
+            "TARSYSTEM_s": {"type": "string", "description": "Target system for this transport."},
+            "AS4USER_s": {"type": "string", "description": "User who last changed/released the transport."},
+            "AS4DATE_s": {"type": "string", "description": "Date of last change/release (YYYYMMDD)."},
+            "AS4TIME_s": {"type": "string", "description": "Time of last change/release (HHMMSS)."},
+            "STRKORR_s": {"type": "string", "description": "Superior transport request number (parent request for task-level transports)."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "TRSTATUS_s == 'R' means released/imported — these are the transports that changed the system.",
+            "Correlate AS4DATE_s/AS4TIME_s with the onset of new errors in ST22/SM21 to identify change-related failures.",
+            "TRFUNCTION_s == 'K' = workbench (code changes), 'W' = customizing (config changes).",
+            "Filter by AS4USER_s to track who imported changes before an incident.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 17 — SapNetweaver_STMS_ObjectEntries_CL  (STMS Transport Object Details)
+    # Schema source: LA workspace take 1
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_STMS_ObjectEntries_CL": {
+        "table_name": "SapNetweaver_STMS_ObjectEntries_CL",
+        "domain": "sap_application",
+        "description": (
+            "STMS transport object entries — individual objects within transport requests. "
+            "Each row is one object (class, program, table entry, etc.) in a transport. "
+            "Use to identify exactly which code/config objects were deployed."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — STMS Object Entries",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "transport_management",
+        "key_columns": ["SID_s", "TRKORR_s", "OBJECT_s", "OBJ_NAME_s", "AS4USER_s"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "hostname_s": {"type": "string", "description": "Application server hostname."},
+            "instanceNr_s": {"type": "string", "description": "SAP instance number."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "TRKORR_s": {"type": "string", "description": "Transport request number this object belongs to."},
+            "TRSTATUS_s": {"type": "string", "description": "Transport status: R=Released."},
+            "OBJECT_s": {"type": "string", "description": "Object type: CLAS=Class, PROG=Program, FUNC=Function Module, TABD=Table Definition, DOMA=Domain, DTEL=Data Element."},
+            "OBJ_NAME_s": {"type": "string", "description": "Object name (e.g. ZCL_ZP2P_GET_PO_DETAIL_DPC). Cross-reference with ST22 Program_s."},
+            "AS4TEXT_s": {"type": "string", "description": "Transport description text (e.g. ticket number + change description)."},
+            "AS4USER_s": {"type": "string", "description": "User who last modified this object in the transport."},
+            "AS4DATE_s": {"type": "string", "description": "Date of last modification (YYYYMMDD)."},
+            "AS4TIME_s": {"type": "string", "description": "Time of last modification (HHMMSS)."},
+            "AS4POS_s": {"type": "string", "description": "Position/sequence number of this object in the transport."},
+            "CLIENT_s": {"type": "string", "description": "Source client where the object was recorded."},
+            "TARCLIENT_s": {"type": "string", "description": "Target client for import."},
+            "LANGU_s": {"type": "string", "description": "Language key (E=English)."},
+            "TRANSPORT_CLIENT_s": {"type": "string", "description": "Client used for the transport import."},
+            "OBJ_NAME_g": {"type": "string", "description": "GUID object name (alternate to OBJ_NAME_s)."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "Cross-reference OBJ_NAME_s with ST22 Program_s — if a newly transported class/program starts dumping, the transport is the root cause.",
+            "Filter OBJECT_s == 'CLAS' or OBJECT_s == 'PROG' for code changes.",
+            "Join with SapNetweaver_STMS_CL on TRKORR_s for transport metadata (user, status, description).",
+            "AS4TEXT_s often contains ticket/CR numbers — useful for linking to change management.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 18 — SapNetweaver_GetQueueStatistic_CL  (Dispatcher Queue Statistics)
+    # Schema source: LA workspace take 1 (BPP system, 2026-08-10)
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_GetQueueStatistic_CL": {
+        "table_name": "SapNetweaver_GetQueueStatistic_CL",
+        "domain": "sap_application",
+        "description": (
+            "SAP dispatcher queue statistics — one row per queue type per app server per collection. "
+            "Shows current depth, high watermark, and max capacity for each dispatcher queue "
+            "(ABAP/DIA, ABAP/UPD, ABAP/BTC, ABAP/NOWP, ICM/HTTP, etc.). "
+            "Use to detect dispatcher bottlenecks where requests queue up waiting for work processes."
+        ),
+        "data_source": "SAP SAPControl API (GetQueueStatistic)",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "queue_monitoring",
+        "key_columns": ["SID_s", "hostname_s", "Typ_s", "Now_d", "High_d", "Max_d"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "hostname_s": {"type": "string", "description": "Application server hostname."},
+            "instanceNr_d": {"type": "real", "description": "SAP instance number."},
+            "Typ_s": {
+                "type": "string",
+                "description": (
+                    "Queue type. Values: 'ABAP/DIA' (dialog), 'ABAP/UPD' (update), "
+                    "'ABAP/BTC' (background), 'ABAP/SPO' (spool), 'ABAP/NOWP' (no-WP tasks), "
+                    "'ICM/HTTP' (web requests), 'ICM/HTTPS' (secure web)."
+                ),
+            },
+            "Now_d": {"type": "real", "description": "Current queue depth. >0 means requests are waiting. Sustained >0 = bottleneck."},
+            "High_d": {"type": "real", "description": "High watermark — peak queue depth since last reset. Indicates worst-case queueing."},
+            "Max_d": {"type": "real", "description": "Maximum queue capacity. If Now_d approaches Max_d, requests will be rejected."},
+            "Reads_d": {"type": "real", "description": "Total number of read (dequeue) operations — requests that were processed."},
+            "Writes_d": {"type": "real", "description": "Total number of write (enqueue) operations — requests that arrived."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "Now_d > 0 on ABAP/DIA = dialog requests waiting for work processes — users experience delays.",
+            "Now_d > 0 on ABAP/BTC = batch requests queued — batch jobs delayed.",
+            "High_d / Max_d > 0.5 = queue reached half capacity at peak — capacity risk.",
+            "Summarize max(Now_d), max(High_d) by hostname_s, Typ_s, bin(serverTimestamp_t, 5m) for trending.",
+            "Cross-reference with SMON DIAQ_d which also tracks dialog queue depth.",
+            "Writes_d - Reads_d over time = net queue growth rate.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 19 — SapNetweaver_EnqGetStatistic_CL  (Enqueue Server Statistics)
+    # Schema source: LA workspace take 1 (BPP system, 2026-08-11)
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_EnqGetStatistic_CL": {
+        "table_name": "SapNetweaver_EnqGetStatistic_CL",
+        "domain": "sap_application",
+        "description": (
+            "SAP enqueue server statistics — lock server performance and capacity metrics. "
+            "Each row is one snapshot of the enqueue server showing lock counts, capacity, "
+            "request counts, and replication state. Use to detect enqueue server exhaustion "
+            "(lock table full), high reject rates, or replication failures that impact HA."
+        ),
+        "data_source": "SAP SAPControl API (EnqGetStatistic)",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "enqueue_statistics",
+        "key_columns": ["SID_s", "hostname_s", "locks_now_d", "locks_high_d", "enqueue_rejects_d", "replication_state_s"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "hostname_s": {"type": "string", "description": "Enqueue server hostname (typically ASCS instance)."},
+            "instanceNr_d": {"type": "real", "description": "SAP instance number (ASCS instance number)."},
+            "locks_now_d": {"type": "real", "description": "Current number of lock entries. Compare with locks_max_d for capacity."},
+            "locks_high_d": {"type": "real", "description": "Peak lock entry count (high watermark)."},
+            "locks_max_d": {"type": "real", "description": "Maximum lock table capacity. If locks_now_d approaches this, system will reject new locks."},
+            "locks_state_s": {"type": "string", "description": "Lock table state: SAPControl-GREEN=healthy, YELLOW=warning, RED=critical (near full)."},
+            "arguments_now_d": {"type": "real", "description": "Current number of lock arguments stored."},
+            "arguments_high_d": {"type": "real", "description": "Peak lock argument count."},
+            "arguments_max_d": {"type": "real", "description": "Maximum lock argument capacity."},
+            "arguments_state_s": {"type": "string", "description": "Arguments state: GREEN/YELLOW/RED."},
+            "owner_now_d": {"type": "real", "description": "Current number of lock owners (unique sessions holding locks)."},
+            "owner_high_d": {"type": "real", "description": "Peak lock owner count."},
+            "owner_max_d": {"type": "real", "description": "Maximum owner capacity."},
+            "owner_state_s": {"type": "string", "description": "Owner state: GREEN/YELLOW/RED."},
+            "replication_state_s": {"type": "string", "description": "Enqueue replication state: SAPControl-GREEN=in-sync. RED/YELLOW=replication broken (HA risk)."},
+            "enqueue_requests_d": {"type": "real", "description": "Total enqueue (lock) requests since server start."},
+            "enqueue_rejects_d": {"type": "real", "description": "Total rejected lock requests (lock collisions). High rate = contention."},
+            "enqueue_errors_d": {"type": "real", "description": "Total enqueue errors. >0 = enqueue server issue."},
+            "dequeue_requests_d": {"type": "real", "description": "Total dequeue (unlock) requests."},
+            "dequeue_all_requests_d": {"type": "real", "description": "Total dequeue-all (bulk unlock) requests."},
+            "dequeue_errors_d": {"type": "real", "description": "Total dequeue errors."},
+            "cleanup_requests_d": {"type": "real", "description": "Lock cleanup requests (orphan lock removal)."},
+            "backup_requests_d": {"type": "real", "description": "Enqueue replication backup requests."},
+            "reporting_requests_d": {"type": "real", "description": "Enqueue monitoring/reporting requests."},
+            "compress_requests_d": {"type": "real", "description": "Lock table compression requests."},
+            "verify_requests_d": {"type": "real", "description": "Lock table verification requests."},
+            "lock_time_d": {"type": "real", "description": "Total lock processing time (seconds). High = enqueue server overloaded."},
+            "lock_wait_time_d": {"type": "real", "description": "Total time spent waiting for locks (seconds). High = lock contention."},
+            "server_time_d": {"type": "real", "description": "Enqueue server processing time."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters.",
+            "locks_state_s != 'SAPControl-GREEN' indicates lock table capacity warning or critical.",
+            "locks_now_d / locks_max_d > 0.7 = lock table is filling up — risk of lock table overflow.",
+            "enqueue_rejects_d growing over time = lock collision rate increasing — contention issue.",
+            "replication_state_s != 'SAPControl-GREEN' = enqueue replication broken — HA failover will lose locks.",
+            "lock_wait_time_d / lock_time_d ratio indicates how much time is spent waiting vs processing.",
+            "Cross-reference with SapNetweaver_EnqueueRead_CL for the actual lock entries being held.",
+            "Summarize max(locks_now_d), max(locks_high_d), sum(enqueue_rejects_d) by bin(serverTimestamp_t, 5m) for trending.",
         ],
     },
 }

@@ -1,15 +1,20 @@
 .env
 .env.example
+~$*
+**/~$*
+diagrams/
 __pycache__/
 *.pyc
 *.pyo
 old/
 *.docx
+*.pptx
 *.csv
 *.md
-# Exclude all .txt EXCEPT requirements.txt
+# Exclude all .txt EXCEPT requirements files
 *.txt
 !requirements.txt
+!requirements.funcapp.txt
 mcp_client.py
 foundry_mcp_client.py
 call-agent.py

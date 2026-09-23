@@ -21,13 +21,26 @@ SCHEMAS: dict[str, dict] = {
         ),
         "data_source": "Prometheus node exporter → Azure Monitor",
         "time_column": "TimeGeneratedPrometheus_t",
-        "sid_column": "SID_s",
-        "key_columns": ["name_s", "value_d", "labels_s", "SID_s"],
+        "sid_column": "sid_s",
+        "key_columns": ["name_s", "value_d", "labels_s", "sid_s", "instance_s"],
         "analysis_type": "os_metrics",
         "columns": {
-            "SID_s": {
+            "sid_s": {
                 "type": "string",
-                "description": "SAP System ID (e.g. CHA, PRD). Always filter by this first.",
+                "description": (
+                    "SAP System ID (e.g. CHA, PRD). Always filter by this first. "
+                    "NOTE: lowercase 'sid_s' on this table — NOT 'SID_s' as used by SapNetweaver_* tables. "
+                    "KQL column names are case-sensitive."
+                ),
+            },
+            "instance_s": {
+                "type": "string",
+                "description": (
+                    "AMS provider instance name configured for this OS (Prometheus) provider, e.g. 'CHA-OS'. "
+                    "This is the monitored-host identity on this table — there is NO hostname_s column here. "
+                    "Use it to separate metrics when several hosts of the same SID are monitored. "
+                    "Resolve it to a real VM/hostname via COMMON_VM_ArmId_Mapping_CL.PROVIDER_INSTANCE_s."
+                ),
             },
             "name_s": {
                 "type": "string",
@@ -91,9 +104,29 @@ SCHEMAS: dict[str, dict] = {
                 "type": "guid",
                 "description": "Batch correlation ID that links all metrics collected in the same scrape cycle.",
             },
+            "PromInstance_s": {
+                "type": "string",
+                "description": (
+                    "Raw Prometheus 'instance' label of the node_exporter scrape target (host:port). "
+                    "Emitted only by newer AMS agent versions and frequently empty — do not rely on it; "
+                    "use instance_s instead. Guard with isnotempty(PromInstance_s) if you query it."
+                ),
+            },
+            "metadata_s": {
+                "type": "string",
+                "description": (
+                    "JSON metadata emitted by newer AMS agent versions. Usually '{}' — not useful for RCA."
+                ),
+            },
+            "TimeGenerated": {
+                "type": "datetime",
+                "description": "Log Analytics ingestion time. Do NOT use for analysis — use TimeGeneratedPrometheus_t.",
+            },
         },
         "kql_hints": [
-            "ALWAYS filter by the sid_column shown in this schema (SID_s for this table): | where SID_s == '<sid>'",
+            "ALWAYS filter by sid_s (LOWERCASE on this table): | where sid_s == '<sid>'. Using 'SID_s' returns a semantic error.",
+            "This table has NO hostname_s column. Use instance_s to identify the monitored host.",
+            "PromInstance_s and metadata_s exist only in newer AMS agent versions and may be missing entirely in older workspaces — avoid them in portable queries.",
             "Use the time_column shown in this schema (TimeGeneratedPrometheus_t for this table) — NOT TimeGenerated.",
             "labels_s is a JSON string — use parse_json(labels_s) to access label fields, e.g.: | extend parsed = parse_json(labels_s) | where parsed.device == 'sda'",
             "For CPU analysis: filter name_s == 'node_cpu_seconds_total', group by parse_json(labels_s).mode to see idle/user/system/iowait breakdown.",

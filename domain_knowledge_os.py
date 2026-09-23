@@ -51,7 +51,11 @@ OS_METRIC_RULES: dict[str, dict] = {
             "High 'system' mode % indicates kernel activity — check for heavy I/O, syscall load, or network traffic.",
             "High 'iowait' mode % means CPUs are stalled waiting for disk — correlate with node_disk_io_now and node_disk_io_time_seconds_total.",
             "High 'steal' mode % in a VM means the hypervisor is not allocating CPU quota — a platform-level issue.",
-            "For SAP systems, CPU spikes often correlate with batch jobs — check SapNetweaver_BatchJobs_CL for concurrent runs.",
+            "For SAP systems, query ABAPGetWPTable_CL with analysis_type='workprocess_status' over the "
+            "CPU spike window. The analyzer computes Cpu_s deltas per WP and ranks all programs by actual "
+            "CPU consumed (segregated by BTC/DIA/UPD). CPU hogs are flagged automatically as BTC_CPU_HOG etc.",
+            "Check BTC (batch) WP activity — sudden jump from 0 to multiple running BTC WPs with the same Program_s = batch CPU runaway.",
+            "Cross-reference top CPU program with SapNetweaver_BatchJobs_CL (use 'contains' not 'has' for job names with underscores).",
             "KQL TROUBLESHOOTING PATTERN — the delta-per-bin method already captures peak within each bin correctly. "
             "Avoid single-scalar summaries over long windows (e.g. summarize over 15 min) for incident diagnosis: "
             "a 100% CPU burst for 30 seconds looks like ~3% in a 15-minute scalar average. "

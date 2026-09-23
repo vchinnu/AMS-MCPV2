@@ -1423,3 +1423,862 @@ def get_priority_sections(error_category: str) -> list[str]:
     )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# NEW DOMAIN KNOWLEDGE — Work Processes, SMON, Failed Updates, SWNC,
+#                         tRFC/Queues, Transports
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Work Process Type Labels (SM50 / SM66) ────────────────────────────────────
+# Maps Typ_s values from ABAPGetWPTable_CL to their meaning.
+
+WP_TYPE_LABELS: dict[str, dict] = {
+    "DIA": {"label": "Dialog", "description": "Handles interactive user requests. Exhaustion = users can't work."},
+    "BTC": {"label": "Background", "description": "Executes batch jobs. Exhaustion = jobs queue up."},
+    "UPD": {"label": "Update V1", "description": "Synchronous database updates. Exhaustion = data loss risk."},
+    "UPD2": {"label": "Update V2", "description": "Async statistical updates. Less critical than V1."},
+    "SPO": {"label": "Spool", "description": "Print/spool output processing."},
+    "ENQ": {"label": "Enqueue", "description": "Lock management. Usually just 1 per instance."},
+}
+
+WP_STATUS_LABELS: dict[str, dict] = {
+    "Run":       {"label": "Running",   "is_busy": True,  "meaning": "Actively executing a request."},
+    "Wait":      {"label": "Waiting",   "is_busy": False, "meaning": "Idle, available for new requests."},
+    "Hold":      {"label": "On Hold",   "is_busy": True,  "meaning": "Paused mid-execution (e.g. waiting for RFC or GUI)."},
+    "Stop":      {"label": "Stopped",   "is_busy": False, "meaning": "WP is stopped — not processing, not available."},
+    "Ended":     {"label": "Ended",     "is_busy": False, "meaning": "WP terminated — will be restarted by dispatcher."},
+    "Semaphore": {"label": "Semaphore", "is_busy": True,  "meaning": "Waiting on a semaphore (internal lock)."},
+}
+
+WP_REASON_FLAGS: dict[str, dict] = {
+    "PRIV": {
+        "severity": "warning",
+        "meaning": "Private mode — WP holding extended memory exclusively. Other users can't use this WP.",
+        "investigation_hints": [
+            "Identify Program_s and User_s consuming the WP — they hold a large memory context.",
+            "If multiple WPs are in PRIV, the system is at risk of WP exhaustion.",
+            "Check SMON HEAPSUMKB_d for total heap usage at the same time.",
+        ],
+    },
+}
+
+WP_THRESHOLDS: dict[str, int] = {
+    "PRIV_WARNING": 2,        # more than 2 PRIV WPs = warning
+    "PRIV_CRITICAL": 5,       # more than 5 = critical
+    "ERR_RESTART_WARNING": 1, # Err_s > 0 means WP has been restarted
+}
+
+
+# ── CPU Attribution: Thresholds & Computation ─────────────────────────────────
+# CPU attribution is handled programmatically by the work_processes analyzer:
+#   - parse_cpu_seconds()       → parse Cpu_s format
+#   - compute_wp_cpu_deltas()   → per-WP CPU delta with reliability flags
+#   - rank_programs_by_cpu()    → ranked list per WP type (BTC, DIA, UPD)
+#
+# The analyzer automatically detects CPU hogs (BTC_CPU_HOG, DIA_CPU_HOG, etc.)
+# and returns investigation_hints pointing to BatchJobs_CL for cross-reference.
+#
+# KEY DATA SOURCE LIMITATIONS (for reference):
+#   SMON_CL  → system-level CPU % only (CPU_CONS_d). NO per-program breakdown.
+#   SWNC_CL  → task-type totals only. NO per-program CPU.
+#   ABAPGetWPTable_CL → THE source for per-program CPU via Cpu_s delta technique.
+# Used by the work_processes analyzer to detect CPU hogs per WP type.
+
+CPU_ATTRIBUTION_THRESHOLDS: dict[str, int | float] = {
+    "SAME_PROGRAM_WP_COUNT": 3,   # ≥3 WPs running same program = anomaly
+    "CPU_DOMINANCE_PCT": 60,      # one program consuming >60% of type's CPU = hog
+    "MIN_SNAPSHOTS_FOR_DELTA": 2, # need ≥2 snapshots per WP for meaningful delta
+    "CONSECUTIVE_SNAPSHOT_GAP_SEC": 180,  # max gap between snapshots to count as consecutive (3 min)
+    "CPU_BOUND_EFFICIENCY": 0.7,  # efficiency ≥0.7 → program is CPU-bound
+    "IO_BOUND_EFFICIENCY": 0.2,   # efficiency ≤0.2 → program is I/O or wait-bound
+    "LONG_RUNNING_REQUEST_SEC": 300,  # Time_s ≥300s → flag as long-running request
+}
+
+# WP type reliability for CPU attribution (referenced by compute_wp_cpu_deltas)
+_WP_CPU_RELIABILITY: dict[str, dict] = {
+    "BTC": {
+        "default_reliable": True,
+        "reason": "BTC WP is dedicated to one batch job — Cpu_s delta = that program's CPU.",
+    },
+    "DIA": {
+        "default_reliable": False,
+        "reason": (
+            "DIA WPs handle many short-lived dialog steps. Cpu_s delta is a mix of "
+            "all programs that ran on this WP between snapshots."
+        ),
+        "exception": (
+            "Reliable IF the same Program_s appears on the same DIA WP (No_d) across "
+            "≥2 consecutive snapshots — indicates a long-running request (>1 min)."
+        ),
+    },
+    "UPD": {
+        "default_reliable": True,
+        "reason": "UPD WPs process one update task at a time — similar to BTC.",
+    },
+    "UP2": {
+        "default_reliable": True,
+        "reason": "UP2 (Update-2) WPs process one deferred update at a time.",
+    },
+    "SPO": {
+        "default_reliable": True,
+        "reason": "SPO (Spool) WPs process one spool request at a time.",
+    },
+}
+
+
+def parse_cpu_seconds(cpu_str: str) -> int | None:
+    """Parse ABAPGetWPTable Cpu_s format 'H:MM:SS' or 'H:M:SS' into total seconds.
+
+    Returns None if the format is unrecognizable.
+
+    Examples:
+        '0:00:00' → 0
+        '1:23:45' → 5025
+        '12:05:03' → 43503
+    """
+    if not cpu_str or not isinstance(cpu_str, str):
+        return None
+    cpu_str = cpu_str.strip()
+    if not cpu_str:
+        return None
+    # Try H:MM:SS or H:M:SS or HH:MM:SS
+    import re
+    m = re.match(r"^(\d+):(\d{1,2}):(\d{2})$", cpu_str)
+    if not m:
+        return None
+    hours, minutes, seconds = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def compute_wp_cpu_deltas(rows: list[dict]) -> list[dict]:
+    """Compute CPU delta per work process from ABAPGetWPTable_CL rows.
+
+    Groups rows by (No_d, hostname_s) — each unique WP.
+    For each WP, computes max(Cpu_s) - min(Cpu_s) = CPU consumed during the window.
+    Also computes CPU efficiency (cpu_delta / wall_clock_delta) and tracks
+    max request runtime from Time_s.
+
+    Args:
+        rows: Raw rows from SapNetweaver_ABAPGetWPTable_CL with at least:
+              No_d, hostname_s, Typ_s, Program_s, Cpu_s, TimeGenerated
+              Optional: Time_s (request elapsed seconds)
+
+    Returns:
+        List of dicts, one per WP that had a computable delta:
+        [
+            {
+                "No_d": 13, "hostname_s": "vchaa01l0c",
+                "Program_s": "ZBAD_REPORT", "Typ_s": "BTC",
+                "cpu_delta_sec": 560, "snapshots": 8,
+                "min_cpu_sec": 100, "max_cpu_sec": 660,
+                "wall_clock_delta_sec": 600,
+                "cpu_efficiency": 0.93,
+                "cpu_bound": True,
+                "max_request_runtime_sec": 580,
+                "reliable": True,
+                "reliability_note": "BTC WP dedicated to one batch job"
+            },
+            ...
+        ]
+    """
+    from collections import defaultdict
+    from datetime import datetime
+
+    # Group rows by unique WP identifier: (No_d, hostname_s)
+    wp_groups: dict[tuple, list[dict]] = defaultdict(list)
+    for row in rows:
+        no_d = row.get("No_d") or row.get("No_d")
+        hostname = str(row.get("hostname_s", "")).strip()
+        if no_d is None or not hostname:
+            continue
+        try:
+            wp_key = (int(float(no_d)), hostname)
+        except (TypeError, ValueError):
+            continue
+        wp_groups[wp_key].append(row)
+
+    max_gap = CPU_ATTRIBUTION_THRESHOLDS["CONSECUTIVE_SNAPSHOT_GAP_SEC"]
+    cpu_bound_thresh = CPU_ATTRIBUTION_THRESHOLDS["CPU_BOUND_EFFICIENCY"]
+    io_bound_thresh = CPU_ATTRIBUTION_THRESHOLDS["IO_BOUND_EFFICIENCY"]
+    results: list[dict] = []
+
+    for (no_d, hostname), wp_rows in wp_groups.items():
+        # Parse Cpu_s and Time_s for each row, pair with timestamp
+        parsed: list[tuple[int, str, str]] = []  # (cpu_sec, program, timestamp_str)
+        time_s_values: list[int] = []
+        for r in wp_rows:
+            cpu_sec = parse_cpu_seconds(str(r.get("Cpu_s", "")))
+            if cpu_sec is None:
+                continue
+            program = str(r.get("Program_s", "")).strip()
+            ts = str(r.get("TimeGenerated", "")).strip()
+            parsed.append((cpu_sec, program, ts))
+            # Parse Time_s (request elapsed seconds)
+            time_s_raw = str(r.get("Time_s", "")).strip()
+            if time_s_raw:
+                try:
+                    time_s_values.append(int(float(time_s_raw)))
+                except (ValueError, TypeError):
+                    pass
+
+        if len(parsed) < 1:
+            continue
+
+        # Sort by timestamp for consecutive-snapshot analysis
+        parsed.sort(key=lambda x: x[2])
+
+        cpu_values = [p[0] for p in parsed]
+        min_cpu = min(cpu_values)
+        max_cpu = max(cpu_values)
+        delta = max_cpu - min_cpu
+
+        # Compute wall-clock delta from timestamps
+        wall_clock_delta: float | None = None
+        cpu_efficiency: float | None = None
+        is_cpu_bound: bool | None = None
+        if len(parsed) >= 2:
+            try:
+                ts_first = datetime.fromisoformat(parsed[0][2].replace("Z", "+00:00"))
+                ts_last = datetime.fromisoformat(parsed[-1][2].replace("Z", "+00:00"))
+                wc = abs((ts_last - ts_first).total_seconds())
+                if wc > 0:
+                    wall_clock_delta = wc
+                    cpu_efficiency = round(delta / wc, 3)
+                    if cpu_efficiency >= cpu_bound_thresh:
+                        is_cpu_bound = True
+                    elif cpu_efficiency <= io_bound_thresh:
+                        is_cpu_bound = False
+            except (ValueError, TypeError):
+                pass
+
+        max_request_runtime = max(time_s_values) if time_s_values else None
+
+        # Determine the dominant program (most frequent in running snapshots)
+        from collections import Counter
+        program_counts = Counter(p[1] for p in parsed if p[1])
+        dominant_program = program_counts.most_common(1)[0][0] if program_counts else ""
+
+        typ = str(wp_rows[0].get("Typ_s", "")).strip()
+
+        # Reliability assessment
+        type_info = _WP_CPU_RELIABILITY.get(typ, {
+            "default_reliable": False,
+            "reason": f"Unknown WP type '{typ}' — reliability unknown.",
+        })
+        reliable = type_info["default_reliable"]
+        reliability_note = type_info["reason"]
+
+        # DIA exception check: same Program_s across consecutive snapshots
+        if typ == "DIA" and not reliable and len(parsed) >= 2:
+            consecutive_same_count = _count_consecutive_same_program(parsed, max_gap)
+            if consecutive_same_count >= 2:
+                reliable = True
+                reliability_note = (
+                    f"DIA exception: same program '{dominant_program}' persisted on WP #{no_d} "
+                    f"across {consecutive_same_count} consecutive snapshots — long-running request."
+                )
+
+        result_entry: dict = {
+            "No_d": no_d,
+            "hostname_s": hostname,
+            "Program_s": dominant_program,
+            "Typ_s": typ,
+            "cpu_delta_sec": delta,
+            "snapshots": len(parsed),
+            "min_cpu_sec": min_cpu,
+            "max_cpu_sec": max_cpu,
+            "reliable": reliable,
+            "reliability_note": reliability_note,
+        }
+        if wall_clock_delta is not None:
+            result_entry["wall_clock_delta_sec"] = round(wall_clock_delta, 1)
+        if cpu_efficiency is not None:
+            result_entry["cpu_efficiency"] = cpu_efficiency
+        if is_cpu_bound is not None:
+            result_entry["cpu_bound"] = is_cpu_bound
+        if max_request_runtime is not None:
+            result_entry["max_request_runtime_sec"] = max_request_runtime
+
+        results.append(result_entry)
+
+    return results
+
+
+def _count_consecutive_same_program(
+    parsed: list[tuple[int, str, str]], max_gap_sec: int
+) -> int:
+    """Count the longest run of consecutive snapshots with the same Program_s.
+
+    Args:
+        parsed: Sorted list of (cpu_sec, program, timestamp_str) tuples.
+        max_gap_sec: Max seconds between snapshots to count as consecutive.
+
+    Returns:
+        Length of the longest consecutive run with the same program.
+    """
+    from datetime import datetime
+
+    if len(parsed) < 2:
+        return len(parsed)
+
+    best_run = 1
+    current_run = 1
+    current_program = parsed[0][1]
+
+    for i in range(1, len(parsed)):
+        prev_program = parsed[i - 1][1]
+        curr_program = parsed[i][1]
+
+        # Check program match
+        if curr_program and curr_program == prev_program:
+            # Check time gap
+            try:
+                ts_prev = datetime.fromisoformat(parsed[i - 1][2].replace("Z", "+00:00"))
+                ts_curr = datetime.fromisoformat(parsed[i][2].replace("Z", "+00:00"))
+                gap = abs((ts_curr - ts_prev).total_seconds())
+                if gap <= max_gap_sec:
+                    current_run += 1
+                else:
+                    current_run = 1
+                    current_program = curr_program
+            except (ValueError, TypeError):
+                # Can't parse timestamps — assume consecutive
+                current_run += 1
+        else:
+            current_run = 1
+            current_program = curr_program
+
+        best_run = max(best_run, current_run)
+
+    return best_run
+
+
+def rank_programs_by_cpu(
+    deltas: list[dict],
+    wall_clock_sec: float | None = None,
+    core_count: int | None = None,
+) -> dict[str, list[dict]]:
+    """Rank programs by CPU consumption, segregated by WP type.
+
+    Takes the output of compute_wp_cpu_deltas() and produces a per-type ranking.
+    Each type's cpu_pct is calculated within that type's total CPU delta.
+    When wall_clock_sec and core_count are provided, also computes server_cpu_pct
+    (what % of total server CPU capacity this program consumed).
+
+    Args:
+        deltas: Output from compute_wp_cpu_deltas().
+        wall_clock_sec: Elapsed wall-clock seconds of the observation window.
+        core_count: Number of CPU cores on the host.
+
+    Returns:
+        Dict keyed by Typ_s, each containing a ranked list:
+        {
+            "BTC": [
+                {"Program_s": "ZBAD_REPORT", "total_cpu_sec": 2240, "wp_count": 4,
+                 "cpu_pct": 83.2, "server_cpu_pct": 93.3, "reliable": True, ...},
+            ],
+            ...
+        }
+    """
+    from collections import defaultdict
+
+    can_compute_server_pct = (
+        wall_clock_sec is not None and core_count is not None
+        and wall_clock_sec > 0 and core_count > 0
+    )
+    total_capacity = (wall_clock_sec * core_count) if can_compute_server_pct else 0.0
+
+    # Group deltas by (Typ_s, Program_s)
+    type_program: dict[str, dict[str, dict]] = defaultdict(lambda: defaultdict(lambda: {
+        "total_cpu_sec": 0, "wp_count": 0, "reliable_count": 0,
+        "unreliable_count": 0, "reliability_notes": [],
+    }))
+
+    for d in deltas:
+        typ = d["Typ_s"]
+        prog = d["Program_s"]
+        if not prog:
+            continue
+        entry = type_program[typ][prog]
+        entry["total_cpu_sec"] += d["cpu_delta_sec"]
+        entry["wp_count"] += 1
+        if d["reliable"]:
+            entry["reliable_count"] += 1
+        else:
+            entry["unreliable_count"] += 1
+        if d["reliability_note"] not in entry["reliability_notes"]:
+            entry["reliability_notes"].append(d["reliability_note"])
+
+    # Build ranked lists per type
+    result: dict[str, list[dict]] = {}
+    for typ, programs in sorted(type_program.items()):
+        type_total = sum(p["total_cpu_sec"] for p in programs.values())
+        ranked: list[dict] = []
+        for prog, info in programs.items():
+            cpu_pct = round(info["total_cpu_sec"] / type_total * 100, 1) if type_total > 0 else 0.0
+            server_cpu_pct = (
+                round(info["total_cpu_sec"] / total_capacity * 100, 1)
+                if can_compute_server_pct else None
+            )
+            # Overall reliability: reliable only if ALL WPs for this program were reliable
+            all_reliable = info["unreliable_count"] == 0 and info["reliable_count"] > 0
+            ranked.append({
+                "Program_s": prog,
+                "total_cpu_sec": info["total_cpu_sec"],
+                "wp_count": info["wp_count"],
+                "cpu_pct": cpu_pct,
+                "server_cpu_pct": server_cpu_pct,
+                "reliable": all_reliable,
+                "reliability_note": (
+                    info["reliability_notes"][0] if len(info["reliability_notes"]) == 1
+                    else f"{info['reliable_count']} reliable, {info['unreliable_count']} unreliable WPs"
+                ),
+            })
+        ranked.sort(key=lambda x: x["total_cpu_sec"], reverse=True)
+        result[typ] = ranked
+
+    return result
+
+
+def compute_wp_type_server_cpu(
+    deltas: list[dict],
+    wall_clock_sec: float,
+    core_count: int,
+) -> dict[str, dict]:
+    """Compute per-WP-type and total server CPU % from WP CPU deltas.
+
+    Args:
+        deltas: Output from compute_wp_cpu_deltas().
+        wall_clock_sec: Elapsed seconds of the observation window.
+        core_count: Number of CPU cores on the host.
+
+    Returns:
+        {
+            "BTC": {"total_cpu_sec": 2075, "server_cpu_pct": 86.5, "wp_count": 4},
+            "DIA": {"total_cpu_sec": 120,  "server_cpu_pct": 5.0,  "wp_count": 2},
+            "_all_wp": {"total_cpu_sec": 2195, "server_cpu_pct": 91.5, "wp_count": 6},
+            "_capacity": {"wall_clock_sec": 600, "core_count": 4, "total_cpu_capacity_sec": 2400},
+        }
+    """
+    from collections import defaultdict
+
+    if wall_clock_sec <= 0 or core_count <= 0:
+        return {}
+
+    total_capacity = wall_clock_sec * core_count
+
+    type_agg: dict[str, dict] = defaultdict(lambda: {"total_cpu_sec": 0, "wp_count": 0})
+    for d in deltas:
+        entry = type_agg[d["Typ_s"]]
+        entry["total_cpu_sec"] += d["cpu_delta_sec"]
+        entry["wp_count"] += 1
+
+    result: dict[str, dict] = {}
+    all_cpu = 0
+    all_wps = 0
+    for typ, info in sorted(type_agg.items()):
+        result[typ] = {
+            "total_cpu_sec": info["total_cpu_sec"],
+            "server_cpu_pct": round(info["total_cpu_sec"] / total_capacity * 100, 1),
+            "wp_count": info["wp_count"],
+        }
+        all_cpu += info["total_cpu_sec"]
+        all_wps += info["wp_count"]
+
+    result["_all_wp"] = {
+        "total_cpu_sec": all_cpu,
+        "server_cpu_pct": round(all_cpu / total_capacity * 100, 1),
+        "wp_count": all_wps,
+    }
+    result["_capacity"] = {
+        "wall_clock_sec": round(wall_clock_sec, 1),
+        "core_count": core_count,
+        "total_cpu_capacity_sec": round(total_capacity, 1),
+    }
+    return result
+
+
+# ── SMON Metric Thresholds (System Monitor) ──────────────────────────────────
+# Each entry defines when a metric value is warning/critical, what the metric
+# means in SAP context, and what to investigate when the threshold is breached.
+# "direction" = "above" (default) means value > threshold is bad.
+#               "below" means value < threshold is bad (e.g. free memory %).
+
+SMON_METRIC_THRESHOLDS: dict[str, dict] = {
+    "CPU_CONS_d": {
+        "warning": 80, "critical": 95,
+        "direction": "above",
+        "meaning": "CPU consumption % across all cores.",
+        "investigation_hints": {
+            "warning": [
+                "Identify which programs consume the most CPU — query ABAPGetWPTable_CL with "
+                "analysis_type='workprocess_status' over the spike window. The analyzer computes "
+                "CPU deltas per WP and ranks programs by actual CPU consumed, segregated by WP type.",
+                "Check BTC (batch) WP count — sudden increase in running BTC WPs often indicates runaway batch jobs.",
+            ],
+            "critical": [
+                "CPU saturation causes TIME_OUT dumps and dialog queue buildup (DIAQ_d).",
+                "Query ABAPGetWPTable_CL with analysis_type='workprocess_status' over the spike window — "
+                "the analyzer automatically ranks programs by CPU consumed and flags CPU hogs (BTC_CPU_HOG).",
+                "Check for runaway batch jobs: multiple BTC WPs running the same Program_s = likely culprit.",
+            ],
+        },
+    },
+    "FREE_MEM_PERC_d": {
+        "warning": 20, "critical": 10,
+        "direction": "below",
+        "meaning": "Free physical memory percentage.",
+        "investigation_hints": {
+            "warning": ["Check HEAPSUMKB_d for heap consumed by PRIV-mode WPs.",
+                        "Check PAGE_IN_PERC_d / PAGE_OUT_PERC_d — if >0, system is swapping."],
+            "critical": ["Memory exhaustion imminent — TSV_TNEW_PAGE_ALLOC_FAILED dumps likely.",
+                         "Identify which users/programs consume the most memory."],
+        },
+    },
+    "PRIVWPNO_d": {
+        "warning": 2, "critical": 5,
+        "direction": "above",
+        "meaning": "Number of work processes in PRIV (private memory) mode.",
+        "investigation_hints": {
+            "warning": ["Identify PRIV users/programs in ABAPGetWPTable_CL."],
+            "critical": ["WP exhaustion risk — PRIV WPs cannot serve other users.",
+                         "Cross-reference with DIAQ_d — if both elevated, system stall imminent."],
+        },
+    },
+    "DIAQ_d": {
+        "warning": 1, "critical": 10,
+        "direction": "above",
+        "meaning": "Dialog queue depth — requests waiting for a dialog WP.",
+        "investigation_hints": {
+            "warning": ["Users are experiencing wait times. Check WP availability."],
+            "critical": ["System stall — all dialog WPs consumed.",
+                         "Check ABAPGetWPTable_CL for what programs hold WPs."],
+        },
+    },
+    "UPDQ_d": {
+        "warning": 1, "critical": 10,
+        "direction": "above",
+        "meaning": "Update queue depth — pending V1/V2 updates waiting for an update WP.",
+        "investigation_hints": {
+            "warning": ["Check update WP availability — SM13 failures may follow."],
+            "critical": ["Update processing backed up — data consistency at risk."],
+        },
+    },
+    "ENQQ_d": {
+        "warning": 1, "critical": 5,
+        "direction": "above",
+        "meaning": "Enqueue queue depth — lock requests waiting for enqueue server.",
+        "investigation_hints": {
+            "warning": ["Enqueue server is slow. Check EnqGetStatistic_CL for lock table fill."],
+            "critical": ["Lock request backlog — transactions will fail with ENQUEUE_FAIL."],
+        },
+    },
+    "STEAL_TIME_d": {
+        "warning": 5, "critical": 15,
+        "direction": "above",
+        "meaning": "CPU steal time % — time stolen by hypervisor from this VM.",
+        "investigation_hints": {
+            "warning": ["VM competing for CPU with co-tenants. Consider VM resize."],
+            "critical": ["Severe hypervisor contention — application performance impacted."],
+        },
+    },
+    "PAGE_IN_PERC_d": {
+        "warning": 0.01, "critical": 1,
+        "direction": "above",
+        "meaning": "Paging in rate — any value > 0 means OS is reading from swap.",
+        "investigation_hints": {
+            "warning": ["Memory pressure causing swap reads — performance degraded."],
+            "critical": ["Heavy swapping — all operations significantly slowed."],
+        },
+    },
+    "PAGE_OUT_PERC_d": {
+        "warning": 0.01, "critical": 1,
+        "direction": "above",
+        "meaning": "Paging out rate — any value > 0 means OS is writing to swap.",
+        "investigation_hints": {
+            "warning": ["Memory pressure causing swap writes — performance degraded."],
+            "critical": ["Heavy swapping — all operations significantly slowed."],
+        },
+    },
+    "DIAAVG60_d": {
+        "warning": 1000, "critical": 3000,
+        "direction": "above",
+        "meaning": "Average dialog response time over last 60 seconds (ms).",
+        "investigation_hints": {
+            "warning": ["User experience degraded. Check DB time and CPU time breakdown."],
+            "critical": ["Dialog response time > 3 seconds — users effectively blocked.",
+                         "Check SWNC_CL for response time component breakdown."],
+        },
+    },
+}
+
+
+def classify_smon_metric(metric_name: str, value: float) -> dict:
+    """Classify a single SMON metric value against thresholds.
+
+    Args:
+        metric_name: Column name from SMON_CL (e.g. 'CPU_CONS_d').
+        value:       The numeric value to classify.
+
+    Returns dict with: severity ('normal'|'warning'|'critical'), meaning, investigation_hints.
+    """
+    entry = SMON_METRIC_THRESHOLDS.get(metric_name)
+    if not entry:
+        return {"severity": "normal", "meaning": f"No threshold defined for {metric_name}.", "investigation_hints": []}
+
+    direction = entry.get("direction", "above")
+    if direction == "below":
+        # Lower is worse (e.g. FREE_MEM_PERC_d)
+        if value <= entry["critical"]:
+            severity = "critical"
+        elif value <= entry["warning"]:
+            severity = "warning"
+        else:
+            severity = "normal"
+    else:
+        # Higher is worse (default — e.g. CPU_CONS_d)
+        if value >= entry["critical"]:
+            severity = "critical"
+        elif value >= entry["warning"]:
+            severity = "warning"
+        else:
+            severity = "normal"
+
+    return {
+        "severity": severity,
+        "meaning": entry["meaning"],
+        "investigation_hints": entry.get("investigation_hints", {}).get(severity, []),
+    }
+
+
+# ── Failed Update State Labels (SM13) ────────────────────────────────────────
+# Maps VBSTATE_s values from FailedUpdates_CL.
+
+FAILED_UPDATE_STATES: dict[str, dict] = {
+    "0": {"label": "Initial",    "is_failure": False, "meaning": "Update created, not yet processed."},
+    "1": {"label": "Error",      "is_failure": True,  "meaning": "Update terminated with error. Data NOT committed.",
+          "investigation_hints": ["Check ST22 for a dump with matching timestamp and program.",
+                                  "Check SM21 for E* (enqueue/update) messages at this time."]},
+    "2": {"label": "Success",    "is_failure": False, "meaning": "Update completed successfully."},
+    "3": {"label": "In Process", "is_failure": False, "meaning": "Update currently running."},
+    "4": {"label": "Terminated", "is_failure": True,  "meaning": "Update was forcibly terminated.",
+          "investigation_hints": ["Check if an admin cancelled this update in SM13.",
+                                  "Check if the update WP crashed — look for Q02 in SM21."]},
+    "5": {"label": "Retry",     "is_failure": True,  "meaning": "Update failed and is queued for retry."},
+    "6": {"label": "Restarted",  "is_failure": False, "meaning": "Update restarted after failure — now succeeded."},
+}
+
+UPDATE_CONTEXT_LABELS: dict[str, dict] = {
+    "V": {"label": "V1 Update (sync)",  "meaning": "Synchronous update — data consistency depends on this."},
+    "W": {"label": "V2 Update (async)", "meaning": "Asynchronous statistical update — less critical."},
+    "B": {"label": "Background",        "meaning": "Update triggered from a background job."},
+    "L": {"label": "Local Update",      "meaning": "Local update — processed on the same app server."},
+    "E": {"label": "Error Context",     "meaning": "Error state context record."},
+    "R": {"label": "Restarted",         "meaning": "Update was restarted after failure."},
+}
+
+
+def classify_update_state(state: str) -> dict:
+    """Classify an SM13 update state code. Returns label, is_failure, meaning, hints."""
+    return FAILED_UPDATE_STATES.get(state, {
+        "label": f"Unknown ({state})", "is_failure": False,
+        "meaning": f"Update state '{state}' is not in the local knowledge base.",
+    })
+
+
+def classify_update_context(ctx: str) -> dict:
+    """Classify an SM13 update context code (VBCONTEXT_s)."""
+    # VBCONTEXT_s may contain surrounding characters like *V* — extract the letter
+    clean = ctx.strip("* ") if ctx else ""
+    return UPDATE_CONTEXT_LABELS.get(clean, {
+        "label": f"Unknown ({ctx})", "meaning": f"Update context '{ctx}' is not in the local knowledge base.",
+    })
+
+
+# ── Workload Statistics — Task Types and Response Time Components (ST03N) ─────
+
+WORKLOAD_TASK_TYPES: dict[str, dict] = {
+    "DIALOG":      {"label": "Dialog",      "meaning": "Interactive user requests. SLA-critical.", "sla_threshold_ms": 1000},
+    "BACKGROUND":  {"label": "Background",  "meaning": "Batch job processing.", "sla_threshold_ms": None},
+    "UPDATE":      {"label": "Update V1",   "meaning": "Synchronous database updates."},
+    "UPDATE2":     {"label": "Update V2",   "meaning": "Asynchronous statistical updates."},
+    "RFC":         {"label": "RFC",         "meaning": "Remote function calls from/to other systems."},
+    "SPOOL":       {"label": "Spool",       "meaning": "Print/output processing."},
+    "BUFFER_SYNC": {"label": "Buffer Sync", "meaning": "Table buffer sync between app servers."},
+}
+
+RESPONSE_TIME_COMPONENTS: dict[str, dict] = {
+    "db":         {"label": "Database",      "field": "ST03_DB_Time_d",         "high_threshold": 0.6,
+                   "meaning": "Time spent waiting for database (HANA). High = DB-bound.",
+                   "investigation_hints": ["Check HANA LoadHistory_CL for DB resource pressure.",
+                                           "High sequential reads vs direct reads suggests missing indexes."]},
+    "cpu":        {"label": "CPU/Processing","field": "ST03_CPU_Time_d",        "high_threshold": 0.4,
+                   "meaning": "ABAP CPU processing time.",
+                   "investigation_hints": ["Application code is CPU-intensive. Check for inefficient ABAP loops."]},
+    "queue":      {"label": "Queue/Wait",    "field": "ST03_Queue_Time_d",      "high_threshold": 0.01,
+                   "meaning": "Time waiting in dispatcher queue for a free WP.",
+                   "investigation_hints": ["WP shortage. Check SMON DIAQ_d and WP counts.",
+                                           "Consider adding more dialog WPs or app servers."]},
+    "rollwait":   {"label": "Roll-Wait",     "field": "ST03_RollWait_Time_d",   "high_threshold": 0.3,
+                   "meaning": "Time waiting for RFC responses, GUI roundtrips, or enqueue operations.",
+                   "investigation_hints": ["Check RFC destinations for high latency.",
+                                           "Check network between app server and target systems."]},
+    "processing": {"label": "Processing",    "field": "ST03_Processing_Time_d", "high_threshold": 0.4,
+                   "meaning": "ABAP application processing (non-DB, non-CPU kernel)."},
+}
+
+
+def classify_task_type(task_type: str) -> dict:
+    """Classify a workload task type name. Returns label, meaning, SLA threshold."""
+    return WORKLOAD_TASK_TYPES.get(task_type, {
+        "label": task_type, "meaning": f"Task type '{task_type}' is not in the local knowledge base.",
+    })
+
+
+def classify_response_component(component: str, fraction: float) -> dict:
+    """Classify a response time component by its fraction of total response time.
+
+    Args:
+        component: One of 'db', 'cpu', 'queue', 'rollwait', 'processing'.
+        fraction:  The fraction (0.0–1.0) this component represents.
+
+    Returns: label, is_dominant, meaning, investigation_hints.
+    """
+    entry = RESPONSE_TIME_COMPONENTS.get(component)
+    if not entry:
+        return {"label": component, "is_dominant": False, "meaning": "Unknown component."}
+    is_dominant = fraction >= entry.get("high_threshold", 1.0)
+    result = {
+        "label": entry["label"],
+        "is_dominant": is_dominant,
+        "meaning": entry["meaning"],
+        "fraction": round(fraction, 3),
+    }
+    if is_dominant:
+        result["investigation_hints"] = entry.get("investigation_hints", [])
+    return result
+
+
+# ── tRFC State Labels (SM58) ─────────────────────────────────────────────────
+
+TRFC_STATE_LABELS: dict[str, dict] = {
+    "SYSFAIL":  {"label": "System Failure", "is_failure": True,
+                 "meaning": "Target system returned a system-level error.",
+                 "investigation_hints": ["Check if target system was available at the time.",
+                                         "Check target system SM21 for crash/error messages."]},
+    "CPICERR":  {"label": "CPIC Error", "is_failure": True,
+                 "meaning": "CPIC communication error — network issue or target unreachable.",
+                 "investigation_hints": ["Check network connectivity to target system.",
+                                         "Check if target SAP gateway was running."]},
+    "RECORDED": {"label": "Recorded", "is_failure": False,
+                 "meaning": "tRFC recorded, waiting to be sent. Normal transitional state."},
+    "EXECUTED": {"label": "Executed", "is_failure": False,
+                 "meaning": "Successfully executed on target system."},
+}
+
+QUEUE_DEPTH_THRESHOLDS: dict[str, float] = {
+    "warning": 100,
+    "critical": 1000,
+    "age_warning_hours": 4,
+    "age_critical_hours": 24,
+}
+
+
+def classify_trfc_state(state: str) -> dict:
+    """Classify a tRFC state code from SM58. Returns label, is_failure, meaning, hints."""
+    return TRFC_STATE_LABELS.get(state, {
+        "label": f"Unknown ({state})", "is_failure": False,
+        "meaning": f"tRFC state '{state}' is not in the local knowledge base.",
+    })
+
+
+def classify_queue_depth(depth: float) -> str:
+    """Classify a queue depth value. Returns 'critical', 'warning', or 'normal'."""
+    if depth >= QUEUE_DEPTH_THRESHOLDS["critical"]:
+        return "critical"
+    if depth >= QUEUE_DEPTH_THRESHOLDS["warning"]:
+        return "warning"
+    return "normal"
+
+
+# ── Transport Status / Function / Object Labels (STMS) ───────────────────────
+
+TRANSPORT_STATUS_LABELS: dict[str, dict] = {
+    "R": {"label": "Released",        "meaning": "Transport released and importable."},
+    "D": {"label": "Modifiable",      "meaning": "Still being modified. Not yet released."},
+    "L": {"label": "Not Released",    "meaning": "Locked — cannot be imported."},
+    "O": {"label": "Release Started", "meaning": "Release process initiated but not complete."},
+    "N": {"label": "Not Importable",  "meaning": "Cannot be imported — may be rejected or incompatible."},
+}
+
+TRANSPORT_FUNCTION_LABELS: dict[str, dict] = {
+    "K": {"label": "Workbench", "meaning": "Code changes — programs, classes, function modules. Higher risk.",
+          "investigation_hints": ["Code changes can introduce new dumps, performance issues, or functional errors."]},
+    "W": {"label": "Customizing", "meaning": "Configuration changes — business rules, parameters.",
+          "investigation_hints": ["Config changes can alter business logic behavior."]},
+    "T": {"label": "Transport of Copies", "meaning": "Copy of objects — typically for testing."},
+    "D": {"label": "Delivery", "meaning": "SAP standard delivery — support packs, notes, patches.",
+          "investigation_hints": ["SAP patches can change standard program behavior. Check SAP note for known issues."]},
+}
+
+TRANSPORT_OBJECT_TYPES: dict[str, dict] = {
+    "CLAS": {"label": "Class",           "is_code": True},
+    "PROG": {"label": "Program",         "is_code": True},
+    "FUNC": {"label": "Function Module", "is_code": True},
+    "FUGR": {"label": "Function Group",  "is_code": True},
+    "TABD": {"label": "Table Definition","is_code": False},
+    "DOMA": {"label": "Domain",          "is_code": False},
+    "DTEL": {"label": "Data Element",    "is_code": False},
+    "VIEW": {"label": "View",            "is_code": False},
+    "ENQU": {"label": "Lock Object",     "is_code": False},
+    "MSAG": {"label": "Message Class",   "is_code": False},
+    "TTYP": {"label": "Table Type",      "is_code": False},
+    "XSLT": {"label": "XSLT Program",   "is_code": True},
+}
+
+
+def classify_transport_status(status: str) -> dict:
+    """Classify a transport request status code."""
+    return TRANSPORT_STATUS_LABELS.get(status, {
+        "label": f"Unknown ({status})", "meaning": f"Transport status '{status}' is not in the local knowledge base.",
+    })
+
+
+def classify_transport_function(func: str) -> dict:
+    """Classify a transport function type code (K=Workbench, W=Customizing, etc.)."""
+    return TRANSPORT_FUNCTION_LABELS.get(func, {
+        "label": f"Unknown ({func})", "meaning": f"Transport function '{func}' is not in the local knowledge base.",
+    })
+
+
+def classify_transport_object(obj_type: str) -> dict:
+    """Classify a transport object type (CLAS, PROG, FUNC, etc.).
+
+    Returns: label, is_code (True for code objects, False for config/dictionary).
+    """
+    return TRANSPORT_OBJECT_TYPES.get(obj_type, {
+        "label": obj_type, "is_code": False,
+    })
+
+
+def classify_wp_type(typ: str) -> dict:
+    """Classify a work process type code (DIA, BTC, UPD, etc.)."""
+    return WP_TYPE_LABELS.get(typ, {
+        "label": f"Unknown ({typ})", "description": f"WP type '{typ}' is not in the local knowledge base.",
+    })
+
+
+def classify_wp_status(status: str) -> dict:
+    """Classify a work process status (Run, Wait, Hold, etc.)."""
+    return WP_STATUS_LABELS.get(status, {
+        "label": f"Unknown ({status})", "is_busy": True, "meaning": f"WP status '{status}' is not classified.",
+    })
+
+
+def classify_wp_reason(reason: str) -> dict:
+    """Classify a work process reason flag (e.g. PRIV)."""
+    return WP_REASON_FLAGS.get(reason, {
+        "severity": "info", "meaning": f"WP reason '{reason}' is not in the local knowledge base.",
+        "investigation_hints": [],
+    })
+
+
