@@ -1,6 +1,4 @@
-```python
 # AMS SAP MCP Server: Deployment & Security High-Level Design
-```
 
 ## Contents
 
@@ -90,8 +88,7 @@
   - [10.10 Open items for implementation](#_Toc241064318)
 - [11. Appendix — Configuration Reference](#_Toc241064319)
 
-<a id="_Toc241064235"></a>
-# 1. Objective
+# <a id="_Toc241064235"></a>1. Objective
 
 The AMS SAP MCP Server is an enterprise-grade Model Context Protocol (MCP) server that provides SAP observability and root-cause-analysis capabilities to AI agents. It is deployed within the customer's Azure tenant alongside the AI Agent (orchestrator) and the required LLM (Azure OpenAI). All runtime components — the Agent, the MCP Server, the LLM, and the Log Analytics Workspaces — reside in the customer tenant.
 
@@ -106,18 +103,15 @@ Key design principles:
 - Token-optimized responses — 80-90% token reduction via TOON format and domain classifiers
 - Plugin-based analyzer architecture for extensibility
 
-<a id="_Toc241064236"></a>
-# 2. Architecture Overview
+# <a id="_Toc241064236"></a>2. Architecture Overview
 
-<a id="_Toc241064237"></a>
-## 2.1 Overall Architecture Diagram
+## <a id="_Toc241064237"></a>2.1 Overall Architecture Diagram
 
 The following diagram shows the deployment topology. All components reside within the customer's Azure tenant. The AI Agent runs in its own resource group and virtual network; the MCP Server runs as a Function App alongside the AMS monitor resources. Access to the MCP Server is controlled by Entra ID authentication combined with Function App network access restrictions. Private Endpoints are not part of the current implementation path.
 
 <img src="AMS_SAP_MCP_Server_HLD_assets/AMS_SAP_MCP_Server_HLD_intermediate_files/image001.png" width="689" height="381" />
 
-<a id="_Toc241064238"></a>
-## 2.2 Component Summary
+## <a id="_Toc241064238"></a>2.2 Component Summary
 
 | **Component** | **Deployment Target** | **Tenant** | **Purpose** |
 |---|---|---|---|
@@ -129,18 +123,15 @@ The following diagram shows the deployment topology. All components reside withi
 | **Azure Key Vault** | Key Vault | Customer | Secrets management (workspace IDs, config) |
 | **Azure Container Registry** | ACR | Customer | MCP server container images |
 
-<a id="_Toc241064239"></a>
-# 3. Authentication
+# <a id="_Toc241064239"></a>3. Authentication
 
 All inter-component authentication uses Microsoft Entra ID. No shared secrets or API keys are stored — credential flows are based on managed identities and OAuth 2.0 client credentials grants.
 
-<a id="_Toc241064240"></a>
-## 3.1 Agent → MCP Server (Entra ID App Registration)
+## <a id="_Toc241064240"></a>3.1 Agent → MCP Server (Entra ID App Registration)
 
 The AI Agent authenticates to the MCP Server with an Entra ID token. This replaces the Function App master API key used by the existing AMS collector Function Apps. The mechanism has two halves: an app registration in Entra ID that represents the MCP Server as a protected resource, and EasyAuth on the Function App that validates incoming tokens against that app registration.
 
-<a id="_Toc241064241"></a>
-### 3.1.1 What the App Registration Is and Why It Is Needed
+### <a id="_Toc241064241"></a>3.1.1 What the App Registration Is and Why It Is Needed
 
 An Entra ID app registration is an identity object that represents an application to the directory. For the MCP Server it plays the role of a protected API. Without it there is no identifier that a caller can request a token for, and no definition of what a valid token for the MCP Server looks like.
 
@@ -155,8 +146,7 @@ Concretely, the app registration provides four things:
 
 Without an app registration the only alternatives are a shared secret such as a Function App key, which is what AMS uses today for the collectors, or anonymous access. The app registration is what makes it possible to say the caller is this specific application in this specific tenant, and to prove it cryptographically rather than by possession of a shared string.
 
-<a id="_Toc241064242"></a>
-### 3.1.2 What EasyAuth Does With It
+### <a id="_Toc241064242"></a>3.1.2 What EasyAuth Does With It
 
 Enabling the Entra ID identity provider on the Function App configures EasyAuth to trust the app registration. EasyAuth is a platform module that runs in the App Service front end, ahead of the Functions host and the MCP application. On every request it performs the following checks and rejects the request with HTTP 401 if any check fails.
 
@@ -172,8 +162,7 @@ Enabling the Entra ID identity provider on the Function App configures EasyAuth 
 
 Two points are worth emphasising for review. First, no authentication code exists in the MCP application; the control is entirely at the platform layer and cannot be bypassed by an application defect. Second, no client secret is required on the Function App side, because validating a token only requires the public signing keys, which EasyAuth fetches from Entra ID automatically.
 
-<a id="_Toc241064243"></a>
-### 3.1.3 End-to-End Token Flow
+### <a id="_Toc241064243"></a>3.1.3 End-to-End Token Flow
 
 ```text
 +----------------------+                      +------------------------------+
@@ -214,8 +203,7 @@ Two points are worth emphasising for review. First, no authentication code exist
 
 Note the separation of the two identities. The Agent identity is used only to prove who is calling the MCP Server. The MCP Server's own System-Assigned Managed Identity is used to read Log Analytics. The Agent never obtains, and never needs, access to the workspace.
 
-<a id="_Toc241064244"></a>
-### 3.1.4 Setup Summary
+### <a id="_Toc241064244"></a>3.1.4 Setup Summary
 
 | **Step** | **Where** | **Action** |
 |---|---|---|
@@ -229,8 +217,7 @@ Note the separation of the two identities. The Agent identity is used only to pr
 
 Steps 1 to 5 have been completed on the deployed Function App. Steps 6 and 7 depend on the Agent's identity being confirmed and are tracked as open items in section 4.9.
 
-<a id="_Toc241064245"></a>
-## 3.2 MCP Server → Log Analytics Workspace (System-Assigned Managed Identity)
+## <a id="_Toc241064245"></a>3.2 MCP Server → Log Analytics Workspace (System-Assigned Managed Identity)
 
 A System-Assigned Managed Identity is created on the MCP Server Function App as part of its deployment. That identity is granted the Log Analytics Reader role on the AMS Log Analytics Workspace. No credentials are stored in the application, the container image, or the app settings — the Azure SDK acquires tokens from the platform identity endpoint at runtime.
 
@@ -283,8 +270,7 @@ Role assignment required by the MCP Server:
 
 Least privilege is enforced twice. Log Analytics Reader grants read access only at the Azure RBAC layer, and the MCP Server additionally applies a read-only KQL guard in application code, so management commands and write operations are rejected before a query is sent to Azure Monitor (see section 6.3).
 
-<a id="_Toc241064246"></a>
-## 3.3 Credential Chain & Resolution
+## <a id="_Toc241064246"></a>3.3 Credential Chain & Resolution
 
 The MCP Server uses a priority-based credential chain (implemented in la_client.py). The first available credential wins:
 
@@ -295,8 +281,7 @@ The MCP Server uses a priority-based credential chain (implemented in la_client.
 
 In deployed environments AZURE_BEARER_TOKEN is unset, so DefaultAzureCredential resolves to the system-assigned managed identity automatically. Because the identity is system-assigned there is exactly one managed identity on the resource, so no AZURE_CLIENT_ID value is required to disambiguate. There is no code path in a deployed environment that uses a secret, key, or password to reach Log Analytics.
 
-<a id="_Toc241064247"></a>
-## 3.4 SID-to-Workspace Mapping
+## <a id="_Toc241064247"></a>3.4 SID-to-Workspace Mapping
 
 Multi-system environments map SAP SIDs to different Log Analytics Workspaces. The resolution order is:
 
@@ -306,22 +291,19 @@ Multi-system environments map SAP SIDs to different Log Analytics Workspaces. Th
 
 3. Default AZURE_LOG_ANALYTICS_WORKSPACE_ID from environment
 
-<a id="_Toc241064248"></a>
-## 3.4 Open items for implementation
+## <a id="_Toc241064248"></a>3.4 Open items for implementation
 
-1.       Agent to function app communication via Agent Identity with Entra has been tested, But if there is a difference in Azure function app MCP extension for this flow – pls check on this in LLD – **Ignite scope**
+1. Agent to function app communication via Agent Identity with Entra has been tested, But if there is a difference in Azure function app MCP extension for this flow – pls check on this in LLD – **Ignite scope**
 
-2.       The OBO flow from Agent identity to all the way LA is not implemented right now – check this **beyond ignite scope**
+2. The OBO flow from Agent identity to all the way LA is not implemented right now – check this **beyond ignite scope**
 
-<a id="_Toc241064249"></a>
-# 4. Network Security
+# <a id="_Toc241064249"></a>4. Network Security
 
 This section describes the network design for the target topology, in which the MCP Server runs as a Function App inside the AMS managed resource group alongside the AMS Log Analytics Workspace, while the AI Agent runs in a separate resource group, virtual network, and subnet within the same customer tenant.
 
 Important: the design below reflects the current AMS network posture, in which Private Endpoints are not enabled on any AMS resource. Section 4.8 describes what changes if Private Endpoints are introduced later.
 
-<a id="_Toc241064250"></a>
-## 4.1 Current AMS Network Posture (Verified Baseline)
+## <a id="_Toc241064250"></a>4.1 Current AMS Network Posture (Verified Baseline)
 
 The following was verified against a live AMS monitor deployment. It is the factual starting point for the MCP Server network design.
 
@@ -339,8 +321,7 @@ The following was verified against a live AMS monitor deployment. It is the fact
 
 The key observation is that AMS today does not rely on network isolation as its primary access control for the provider Function Apps. Inbound endpoints are public and unrestricted at the network layer; access is controlled by the Function App key that only the AMS Resource Provider holds. The MCP Server improves on this by replacing the shared key with Entra ID identity validation, and can optionally add network restrictions on top.
 
-<a id="_Toc241064251"></a>
-## 4.2 Target Topology — MCP in the Managed RG, Agent in a Separate VNet
+## <a id="_Toc241064251"></a>4.2 Target Topology — MCP in the Managed RG, Agent in a Separate VNet
 
 ```text
 ┌═══════════════════════════ Customer Azure Tenant ═══════════════════════════════════┐
@@ -384,8 +365,7 @@ The key observation is that AMS today does not rely on network isolation as its 
 ╚═════════════════════════════════════════════════════════════════════════════════════╝
 ```
 
-<a id="_Toc241064252"></a>
-## 4.3 Function App Network Model — Inbound versus Outbound
+## <a id="_Toc241064252"></a>4.3 Function App Network Model — Inbound versus Outbound
 
 Understanding the Azure Functions network model is essential because inbound and outbound traffic use entirely different paths.
 
@@ -396,8 +376,7 @@ Understanding the Azure Functions network model is essential because inbound and
 
 This distinction is the single most important point in this section. Regional VNet integration gives the Function App an outbound presence in the subnet. It does not place the inbound endpoint in the VNet, and it does not create a private inbound IP address. The site continues to be reachable at its public azurewebsites.net hostname unless an additional control is applied.
 
-<a id="_Toc241064253"></a>
-## 4.4 Public Endpoint with Restricted Network Access
+## <a id="_Toc241064253"></a>4.4 Public Endpoint with Restricted Network Access
 
 (for cases not OK with function public access for inbound calls)
 
@@ -405,8 +384,7 @@ The network approach is that all AMS function app  resources remain on public ac
 
 This section records precisely how that is implemented, because the Azure Functions inbound model has an important characteristic that determines which control actually enforces the restriction.
 
-<a id="_Toc241064254"></a>
-### 4.4.1 How the Restriction Is Enforced
+### <a id="_Toc241064254"></a>4.4.1 How the Restriction Is Enforced
 
 Function App network access restrictions are applied to the App Service front end, not to the virtual network. A rule of type virtual network names a specific subnet and is enforced using a Microsoft.Web service endpoint configured on that subnet. When a request arrives, the platform identifies the originating subnet and matches it against the rule list.
 
@@ -420,8 +398,7 @@ Function App network access restrictions are applied to the App Service front en
 
 An important detail for implementation: the allow rule must name the Agent subnet itself. Virtual network peering does not cause traffic from the Agent subnet to be seen as originating from the AMS subnet, so naming only the AMS subnet would not admit the Agent. Each subnet that must reach the MCP Server is listed explicitly.
 
-<a id="_Toc241064255"></a>
-### 4.4.2 Role of Virtual Network Peering
+### <a id="_Toc241064255"></a>4.4.2 Role of Virtual Network Peering
 
 Peering between the Agent virtual network and the AMS virtual network is recommended, but it is worth being precise about what it does and does not do in this design.
 
@@ -435,8 +412,7 @@ Peering between the Agent virtual network and the AMS virtual network is recomme
 
 **In summary, the clarification for the design record is that the enforcing control is the access restriction rule combined with the service endpoint on the Agent subnet, with peering providing the broader private connectivity and the foundation for a future Private Endpoint model.**
 
-<a id="_Toc241064256"></a>
-## 4.5 Layered Controls on the MCP Function App
+## <a id="_Toc241064256"></a>4.5 Layered Controls on the MCP Function App
 
 Access to the MCP Server is controlled in two independent layers. A request must pass both before any MCP application code executes. Neither layer depends on the other, so a misconfiguration in one does not silently remove all protection.
 
@@ -455,7 +431,6 @@ Access to the MCP Server is controlled in two independent layers. A request must
 Agent subnet  (VNet-Agent, peered with VNet-AMS (peering not mandatory for now))
   service endpoint: Microsoft.Web
   -----------------------------------
-```text
               |
               |  HTTPS + Entra ID bearer token
               v
@@ -472,30 +447,23 @@ Agent subnet  (VNet-Agent, peered with VNet-AMS (peering not mandatory for now))
   |  +---------------------v---------------------+  |
   |  | EasyAuth - authentication  (enforced)     |  |
   |  |  signature | issuer | audience | expiry   |  |
-```
-
-| +---------------------+---------------------+ |
-| | EasyAuth - authorization (NOT YET SET) | |
-
-  | | allowed client application ID            | |
-
-  | or required app role MCP.Tools. Invoke       | |
-
-```text
-  | +---------------------+---------------------+ |
+  |  +---------------------+---------------------+  |
+  |  | EasyAuth - authorization (NOT YET SET)    |  |
+  |  | allowed client application ID             |  |
+  |  | or required app role MCP.Tools.Invoke     |  |
+  |  +---------------------+---------------------+  |
   |                        | passed identity check |
-  |  +---------------------v---------------------+ |
-  |  | Functions host -> MCP application         | |
-  |  +-------------------------------------------+ |
+  |  +---------------------v---------------------+  |
+  |  | Functions host -> MCP application          |  |
+  |  +--------------------------------------------+  |
   +-------------------------------------------------+
 ```
 
-  Any source other than the listed subnets is rejected at the network layer.
-```
-  Any request without a valid Entra ID token is rejected at the identity layer.
+Any source other than the listed subnets is rejected at the network layer.
 
-<a id="_Toc241064257"></a>
-## 4.6 Outbound Path — MCP Server to Log Analytics
+Any request without a valid Entra ID token is rejected at the identity layer.
+
+## <a id="_Toc241064257"></a>4.6 Outbound Path — MCP Server to Log Analytics
 
 The MCP Server queries the AMS Log Analytics Workspace over the Azure Monitor query endpoint. Because the workspace has public query access enabled and no Private Endpoint, this is a service endpoint call authenticated by the AMS Managed Identity.
 
@@ -510,8 +478,7 @@ The MCP Server queries the AMS Log Analytics Workspace over the Azure Monitor qu
 
 Because route-all is enabled, any restrictive NSG or user-defined route applied to the AMS subnet affects the MCP Server exactly as it affects the existing AMS collectors. If a deny-by-default egress policy is introduced, the AzureMonitor, AzureActiveDirectory, and container registry service tags must be allowed or the collectors will fail alongside the MCP Server. This shared fate is intentional — it keeps the MCP Server operationally consistent with the rest of the monitor.
 
-<a id="_Toc241064258"></a>
-## 4.7 DNS Considerations
+## <a id="_Toc241064258"></a>4.7 DNS Considerations
 
 | **Scenario** | **DNS requirement** | **Action needed** |
 |---|---|---|
@@ -522,8 +489,7 @@ Because route-all is enabled, any restrictive NSG or user-defined route applied 
 
 A frequent failure mode when Private Endpoints are introduced is correct routing with incorrect name resolution. The caller resolves the public address, bypasses the Private Endpoint, and is then blocked by the public access setting. Private DNS zone linkage to every calling virtual network is mandatory, not optional.
 
-<a id="_Toc241064259"></a>
-## 4.8 Future State — If Private Endpoints Are Enabled
+## <a id="_Toc241064259"></a>4.8 Future State — If Private Endpoints Are Enabled
 
 Private Endpoints are not enabled on any AMS resource today. Introducing them is an AMS platform decision rather than an MCP Server decision, because the managed resource group carries deny assignments that prevent the customer from adding endpoints to AMS resources directly. The considerations below are recorded so the MCP Server design remains compatible with that future.
 
@@ -538,14 +504,13 @@ Private Endpoints are not enabled on any AMS resource today. Introducing them is
 The Azure Monitor Private Link Scope warrants particular caution. It is a scope-level construct: switching a workspace to private-only query or ingestion affects every client of that workspace, not only the MCP Server. If AMS adopts it, the AMS collectors, any customer dashboards, workbooks, alert rules, and external query tooling must all have a private path or an explicit exception. This is the principal reason the current AMS posture keeps public access enabled.
 
 Recommended sequencing if Private Endpoints are adopted:
-- 1. Enable the Private Endpoint and private DNS for the MCP Function App first — smallest blast radius, and it is the component exposed to the Agent
-- 2. Establish VNet peering between the Agent VNet and the AMS VNet, and link the private DNS zone to both virtual networks
-- 3. Validate the Agent-to-MCP path end to end before changing anything on the workspace
-- 4. Introduce the Azure Monitor Private Link Scope only after every workspace consumer has been inventoried and given a private path or an exception
-- 5. Keep public access enabled during transition and disable it only after private paths are proven
+1. Enable the Private Endpoint and private DNS for the MCP Function App first — smallest blast radius, and it is the component exposed to the Agent
+2. Establish VNet peering between the Agent VNet and the AMS VNet, and link the private DNS zone to both virtual networks
+3. Validate the Agent-to-MCP path end to end before changing anything on the workspace
+4. Introduce the Azure Monitor Private Link Scope only after every workspace consumer has been inventoried and given a private path or an exception
+5. Keep public access enabled during transition and disable it only after private paths are proven
 
-<a id="_Toc241064260"></a>
-## 4.9 Open Items and Dependencies
+## <a id="_Toc241064260"></a>4.9 Open Items and Dependencies
 
 | **Item** | **Owner** | **Decision required** |
 |---|---|---|
@@ -558,32 +523,27 @@ Recommended sequencing if Private Endpoints are adopted:
 
 Summary of the recommendation for the current state: rely on Entra ID EasyAuth as the primary control, restrict it to the Agent's application identity, and add App Service Access Restrictions naming the Agent subnet as defence in depth. Do not introduce VNet peering for the Agent-to-MCP path, because that path does not traverse the peering link while the inbound endpoint remains a public App Service front end.
 
-**\**
+## <a id="_Toc241064261"></a>4.10 Open items for implementation
 
-<a id="_Toc241064261"></a>
-## 4.10 Open items for implementation
+1. Agent is right now not implemented within the network boundary – when this comes into scope then on function app to enable the restricted network access to enable between Subnet of AMS to the Agent Vnet/Subnet – need to be enabled for implementation **– beyond Ignite scope**
 
-**1.      ** Agent is right now not implemented within the network boundary – when this comes into scope then on function app to enable the restricted network access to enable between Subnet of AMS to the Agent Vnet/Subnet – need to be enabled for implementation **– beyond Ignite scope**
+2. In case of concerns from Customer’s on public access on the function app where the MCP server is deployed – then check more on how the restricted network access can be enabled from AMS subnet/service – **Ignite scope**
 
-2.       In case of concerns from Customer’s on public access on the function app where the MCP server is deployed – then check more on how the restricted network access can be enabled from AMS subnet/service – **Ignite scope**
+3. **Current limitation** – we cannot support network boundaries right now for Ignite (check more on this with Shashank once based on customer experience on function app network restrictions) – appraise PM’s on this limitation
 
-3.       **Current limitation** – we cannot support network boundaries right now for Ignite (check more on this with Shashank once based on customer experience on function app network restrictions) – appraise PM’s on this limitation
+# <a id="_Toc241064262"></a>5. Deployment Strategy
 
-<a id="_Toc241064262"></a>
-# 5. Deployment Strategy
-
-<a id="_Toc241064263"></a>
-## 5.1 Azure Container Apps (Current in POC)
+## <a id="_Toc241064263"></a>5.1 Azure Container Apps (Current in POC)
 
 The MCP Server is currently deployed as an Azure Container App. This is the validated deployment target with existing deployment scripts and CI/CD pipeline.
 
 Deployment flow (deploy-to-aca-v2.ps1):
-- 1. Reuse existing ACR (amsmcpserveracr) — push distinct image tag
-- 2. Reuse existing Container Apps Environment (VNet-injected)
-- 3. Create User-Assigned Managed Identity (UAMI)
-- 4. Assign RBAC roles: Log Analytics Reader on LAWS, AcrPull on ACR
-- 5. Deploy Container App with UAMI, internal ingress, port 8000
-- 6. Configure environment variables (workspace ID, SID, timeouts, cache)
+1. Reuse existing ACR (amsmcpserveracr) — push distinct image tag
+2. Reuse existing Container Apps Environment (VNet-injected)
+3. Create User-Assigned Managed Identity (UAMI)
+4. Assign RBAC roles: Log Analytics Reader on LAWS, AcrPull on ACR
+5. Deploy Container App with UAMI, internal ingress, port 8000
+6. Configure environment variables (workspace ID, SID, timeouts, cache)
 
 Container App configuration:
 
@@ -601,8 +561,8 @@ Environment variables configured on the Container App:
 
 | **Variable** | **Example Value** | **Purpose** |
 |---|---|---|
-| **AZURE_LOG_ANALYTICS_WORKSPACE_ID** | <workspace-guid> | Default LAWS workspace for queries |
-| **AZURE_CLIENT_ID** | <UAMI-client-id> | User-Assigned Managed Identity client ID |
+| **AZURE_LOG_ANALYTICS_WORKSPACE_ID** | `workspace-guid` | Default LAWS workspace for queries |
+| **AZURE_CLIENT_ID** | `UAMI-client-id` | User-Assigned Managed Identity client ID |
 | **DEFAULT_SID** | CHA | Default SAP System ID |
 | **MAX_QUERY_ROWS** | 1000 | Auto-cap for unbounded queries |
 | **DEFAULT_TIMESPAN_HOURS** | 24 | Default time window when none specified |
@@ -611,15 +571,11 @@ Environment variables configured on the Container App:
 | **CACHE_MAX_ENTRIES** | 50 | Max cached query results |
 | **SID_WORKSPACE_MAP** | CHA:guid1,PRD:guid2 | Multi-SID workspace routing |
 
-<a id="_Toc241064264"></a>
-## 5.2 Azure Function App — AMS-Aligned Deployment (Implemented as POC)
+## <a id="_Toc241064264"></a>5.2 Azure Function App — AMS-Aligned Deployment (Implemented as POC)
 
 The MCP Server has been deployed as an Azure Function App to align with the existing Azure Monitor for SAP (AMS) deployment model. Every AMS monitor already provisions a set of provider Function Apps (SAP NetWeaver, SAP HANA, Prometheus OS, Prometheus HA Cluster, Scheduler, Validator). The MCP Server is deployed as an additional Function App using the same runtime, plan, identity, and network topology as those collectors.
 
-<a id="_Toc241064265"></a>
-### 5.2.1 Why Function App — Alignment with AMS
-
-** **
+### <a id="_Toc241064265"></a>5.2.1 Why Function App — Alignment with AMS
 
 **Current AMS Architecture**
 
@@ -634,7 +590,7 @@ Observed configuration of the existing AMS collector Function Apps:
 | **Attribute** | **Observed Value** | **MCP Server Alignment** |
 |---|---|---|
 | **App kind** | functionapp,linux,container | Same — Linux container Function App |
-| **Runtime image** | DOCKER|<internal-acr>/sapnetweaver-provider:4.0.x | Same pattern — DOCKER|<acr>/sap-rca-mcp-funcapp:latest |
+| **Runtime image** | `DOCKER\|internal-acr/sapnetweaver-provider:4.0.x` | Same pattern — `DOCKER\|acr/sap-rca-mcp-funcapp:latest` |
 | **Worker runtime** | python | Same — FUNCTIONS_WORKER_RUNTIME=python |
 | **Functions version** | ~4 | Same — Azure Functions v4 |
 | **App Service Plan** | Elastic Premium EP1 (shared by all providers) | Same plan reused — Dedicated plans are equally supported (see 5.2.7) |
@@ -642,10 +598,9 @@ Observed configuration of the existing AMS collector Function Apps:
 | **VNet** | VNet-integrated on the monitor subnet | Same VNet and subnet |
 | **Authentication** | Function App master API keys | Changed to Entra ID (EasyAuth) — see 5.2.6 |
 
-<a id="_Toc241064266"></a>
-### 5.2.2 Deployed Resource Topology
+### <a id="_Toc241064266"></a>5.2.2 Deployed Resource Topology
 
-For the POC the MCP Function App is deployed into the AMS-hosted resource group (where the Microsoft.Workloads/monitors resource lives) rather than the AMS managed resource group (mrg\_\*). The managed resource group carries deny assignments and CanNotDelete locks that permit resource creation only by the AMS Resource Provider service principal. Deploying inside the managed resource group is the productisation path and requires AMS service code changes (see 5.2.9).
+For the POC the MCP Function App is deployed into the AMS-hosted resource group (where the Microsoft.Workloads/monitors resource lives) rather than the AMS managed resource group (`mrg_*`). The managed resource group carries deny assignments and CanNotDelete locks that permit resource creation only by the AMS Resource Provider service principal. Deploying inside the managed resource group is the productisation path and requires AMS service code changes (see 5.2.9).
 
 ```text
 +--------------- AMS-Hosted Resource Group (POC target) ------------------------+
@@ -653,42 +608,42 @@ For the POC the MCP Function App is deployed into the AMS-hosted resource group 
 |   +----------------------------+     +-----------------------------------+    |
 |   |  Microsoft.Workloads/      |     |  MCP Server Function App          |    |
 |   |  monitors                  |     |  kind: functionapp,linux,container|    |
-|   |  (AMS Monitor resource)    |     |  image: \<acr\>/sap-rca-mcp-funcapp |    |
+|   |  (AMS Monitor resource)    |     |  image: <acr>/sap-rca-mcp-funcapp |    |
 |   +----------------------------+     |  auth : Entra ID EasyAuth         |    |
 |                                      |                                   |    |
 |   +----------------------------+     |  System-Assigned Managed Identity |    |
-|   |  Function App Storage      |\<----+  created with this Function App   |    |
+|   |  Function App Storage      |<-----+  created with this Function App   |    |
 |   |  (Functions runtime state) |     +------+----------------------+-----+    |
 |   +----------------------------+            |                      |          |
 |                                    VNet     |                      | RBAC     |
 |   +-------------------------------------+   |                      |          |
-|   |  VNet: ams-\<monitor\>-vnet           |\<--+                      |          |
-|   |  Subnet: \<monitor\>-subnet           |   (outbound integration) |          |
+|   |  VNet: ams-<monitor>-vnet           |<--+                      |          |
+|   |  Subnet: <monitor>-subnet           |   (outbound integration) |          |
 |   |  (shared with AMS collectors)       |                          |          |
 |   +-------------------------------------+                          |          |
 |                                                                    |          |
 +--------------------------------------------------------------------|----------+
                                           reuses plan                |
-+--------------- AMS Managed Resource Group (mrg\_\*) ------------------|----------+
-|                 \[deny assignments + CanNotDelete\]                   |          |
++--------------- AMS Managed Resource Group (mrg_*) ------------------|----------+
+|                 [deny assignments + CanNotDelete]                   |          |
 |   +--------------------------+      +------------------------------+------+   |
 |   |  App Service Plan        |      |  AMS User-Assigned Managed Identity  |   |
-|   |  sapmon-app-\* (EP1/Dedicated)   |  sapmon-msi-\*                        |   |
+|   |  sapmon-app-* (EP1/Dedicated)   |  sapmon-msi-*                        |   |
 |   |  shared by all providers |      |  used by the AMS collectors only     |   |
 |   +--------------------------+      +------------------+-------------------+   |
 |                                                        | writes telemetry      |
 |   +----------------------------------------------------v-------------------+   |
-|   |  AMS Log Analytics Workspace (sapmon-laws-\*)                           |   |
+|   |  AMS Log Analytics Workspace (sapmon-laws-*)                           |   |
 |   |  SAP telemetry: ShortDumps, SysLogs, BatchJobs, HANA, OS, HA Cluster   |   |
 |   |                                                                        |   |
 |   |  Role assignments on this scope:                                       |   |
-|   |    - AMS UAMI (sapmon-msi-\*)          -\> write telemetry (collectors)  |   |
-|   |    - MCP Function App system MI       -\> Log Analytics Reader (read)   |   |
+|   |    - AMS UAMI (sapmon-msi-*)           -> write telemetry (collectors)  |   |
+|   |    - MCP Function App system MI        -> Log Analytics Reader (read)   |   |
 |   +------------------------------------------------------------------------+   |
 |                                                                                |
 |   Existing AMS collector Function Apps (untouched):                            |
-|   sapnetweaver-\*  saphana-\*  prometheusos-\*  prometheushacluster-\*             |
-|   scheduler-\*     validator-\*                                                  |
+|   sapnetweaver-*  saphana-*  prometheusos-*  prometheushacluster-*             |
+|   scheduler-*     validator-*                                                  |
 +--------------------------------------------------------------------------------+
 
 ```
@@ -706,8 +661,7 @@ Resources created versus reused:
 | **Log Analytics Workspace** | Reused | AMS managed RG | sapmon-laws-* — SAP telemetry source |
 | **RBAC: Log Analytics Reader** | Reused | LAWS scope | Already present on the AMS UAMI |
 
-<a id="_Toc241064267"></a>
-### 5.2.3 ASGI Adapter Design – not relevant with Azure function MCP extension
+### <a id="_Toc241064267"></a>5.2.3 ASGI Adapter Design – not relevant with Azure function MCP extension
 
 Note - The below proposal is for FAST MCP implementation POC – this section is obsolete now for implementation of MCP server via Azure Function app extension
 
@@ -815,8 +769,7 @@ Root cause conclusively isolated. Same chunked request against the Container App
 
 1.  **Try to fix chunked-body handling on the Function App** — riskier/uncertain; this is a known class of platform limitation with no guaranteed app-setting fix, and could require significant investigation with no guaranteed resolution.
 
-<a id="_Toc241064268"></a>
-### 5.2.4 Docker Image — Dockerfile.funcapp
+### <a id="_Toc241064268"></a>5.2.4 Docker Image — Dockerfile.funcapp
 
 The Function App image differs from the Container App image in two respects only: the base image provides the Azure Functions host, and the entry point is the Functions runtime rather than a uvicorn CMD. All application layers are unchanged.
 
@@ -850,8 +803,7 @@ COPY tools/     ./tools/
 COPY analyzers/ ./analyzers/
 ```
 
-<a id="_Toc241064269"></a>
-### 5.2.5 Deployment Sequence (10 Steps)
+### <a id="_Toc241064269"></a>5.2.5 Deployment Sequence (10 Steps)
 
 Deployment is automated by deploy-to-funcapp.ps1. The script is idempotent — re-running it rebuilds the image and updates the existing Function App configuration.
 
@@ -881,8 +833,7 @@ Application settings configured on the MCP Function App:
 | **DEFAULT_TIMESPAN_HOURS** | Default query window | MCP-specific |
 | **QUERY_TIMEOUT_SECONDS** | KQL execution timeout | MCP-specific |
 
-<a id="_Toc241064270"></a>
-### 5.2.6 Entra ID Authentication via EasyAuth
+### <a id="_Toc241064270"></a>5.2.6 Entra ID Authentication via EasyAuth
 
 This is the principal security difference between the MCP Function App and the existing AMS collector Function Apps. AMS collectors are invoked by the AMS Resource Provider using Function App master API keys. The MCP Server is invoked by an AI Agent, which is not a Microsoft first-party service, so identity-based authentication is required instead of a shared key.
 
@@ -950,8 +901,7 @@ EasyAuth configuration applied to the MCP Function App:
 
 EasyAuth is a production-grade capability, not a development shortcut. It is the Microsoft-recommended approach for protecting App Service and Function App endpoints with Entra ID. Because it runs outside the application process, it cannot be bypassed or disabled by an application defect, and it requires no security-sensitive code in the MCP server.
 
-<a id="_Toc241064271"></a>
-### 5.2.7 Result Cache and Function App Hosting Plans
+### <a id="_Toc241064271"></a>5.2.7 Result Cache and Function App Hosting Plans
 
 The MCP Server caches full query results in process (tools/result_cache.py) so that get_details can perform progressive disclosure without re-executing KQL. Because the cache is in process, its behaviour depends on the hosting plan. AMS Function Apps may be deployed on Elastic Premium or on a Dedicated (App Service) plan, so both are assessed here, along with Consumption for completeness.
 
@@ -959,8 +909,7 @@ Two independent factors determine whether a cached entry is available when get_d
 - Process longevity — the worker process that served execute_query must still be running when get_details arrives
 - Instance affinity — the request must be routed to the same instance that served execute_query, because each instance holds its own cache
 
-<a id="_Toc241064272"></a>
-### Process longevity by hosting plan
+### <a id="_Toc241064272"></a>Process longevity by hosting plan
 
 | **Hosting plan** | **Instance behaviour** | **Effect on the in-process cache** | **Suitable without change?** |
 |---|---|---|---|
@@ -978,8 +927,7 @@ One configuration note that is easy to miss: Always On is the relevant setting o
 | **Elastic Premium** | minimumElasticInstanceCount (always-ready instances) | At least 1 |
 | **Consumption** | Not available | Not applicable |
 
-<a id="_Toc241064273"></a>
-### Instance affinity when scaled beyond one instance
+### <a id="_Toc241064273"></a>Instance affinity when scaled beyond one instance
 
 Process longevity alone is not sufficient once the plan runs more than one instance. The cache is local to each worker, so a get_details call that is load balanced to a different instance than the one that served execute_query will not find the entry. This applies equally to Dedicated and Elastic Premium plans, and equally to Container Apps with more than one replica, so it is not a Function App limitation.
 
@@ -1008,8 +956,7 @@ Options for handling multi-instance operation, in order of preference:
 
 The app scale limit is the practical control for the second option. Because the MCP Server is a query relay that performs classification rather than heavy computation, a single instance comfortably serves interactive RCA workloads, and constraining scale-out also protects the shared AMS plan from contention with the collector Function Apps.
 
-<a id="_Toc241064274"></a>
-### Decision
+### <a id="_Toc241064274"></a>Decision
 
 | **Deployment** | **Cache approach** | **Action required** |
 |---|---|---|
@@ -1020,8 +967,7 @@ The app scale limit is the practical control for the second option. Because the 
 
 Decision for the current design: retain the existing in-memory cache with no code change, on either a Dedicated or an Elastic Premium plan. The cache is a latency and token optimisation, not a correctness dependency — every cache miss degrades to a repeated query rather than an error, so no deployment configuration can make the MCP Server functionally incorrect. The configuration items to confirm at deployment time are Always On (Dedicated) or always-ready instances (Elastic Premium), and the instance scale limit.
 
-<a id="_Toc241064275"></a>
-### 5.2.8 Deployment Options — Pros & Cons
+### <a id="_Toc241064275"></a>5.2.8 Deployment Options — Pros & Cons
 
 Three packaging options were evaluated for the Function App deployment.
 
@@ -1046,8 +992,7 @@ Option B — Container published to the AMS provider registry (production target
 
 Option A was selected because it reproduces the AMS packaging model exactly while requiring no changes to the AMS service code. The only difference between Option A and Option B is which registry hosts the image and which principal performs the deployment.
 
-<a id="_Toc241064276"></a>
-### 5.2.9 End-to-End Flow — New vs Existing Customers
+### <a id="_Toc241064276"></a>5.2.9 End-to-End Flow — New vs Existing Customers
 
 The diagram below contrasts the POC deployment performed today with the productised flows for new and existing AMS customers once the MCP Server is integrated into the AMS Resource Provider.
 
@@ -1100,8 +1045,7 @@ AMS service changes required to move from the POC to production:
 | **Configure EasyAuth in the template** | ARM template / RP code | Enable Entra ID authentication declaratively |
 | **Decide on enablement model** | AMS product definition | Opt-in capability per monitor, or enabled for all monitors |
 
-<a id="_Toc241064277"></a>
-### 5.2.10 Current Status & Open Items
+### <a id="_Toc241064277"></a>5.2.10 Current Status & Open Items
 
 All infrastructure provisioning steps have completed successfully. The Function App is running, the container image is mounted, the managed identity and network integration are in place, and Entra ID authentication is enforced.
 
@@ -1128,8 +1072,7 @@ All infrastructure provisioning steps have completed successfully. The Function 
 
 This is an integration issue between the Azure Functions host and the MCP ASGI transport. It does not affect the Container App deployment, which remains fully operational and is the validated deployment target. The Function App deployment is presented here as an AMS-aligned alternative that is infrastructure-complete and pending protocol validation.
 
-<a id="_Toc241064278"></a>
-## 5.3 Comparison: Container Apps vs Function App
+## <a id="_Toc241064278"></a>5.3 Comparison: Container Apps vs Function App
 
 | **Aspect** | **Container Apps (Validated)** | **Function App on the AMS Plan (Implemented)** |
 |---|---|---|
@@ -1150,8 +1093,7 @@ This is an integration issue between the Azure Functions host and the MCP ASGI t
 
 Both deployment targets run the same MCP application code and provide the same tools, domain analyzers, and token-optimised responses. The Container App deployment is the validated target today. The Function App deployment is the AMS-aligned target and is the basis for productisation inside AMS monitor provisioning.
 
-<a id="_Toc241064279"></a>
-## 5.4 Docker Image Structure
+## <a id="_Toc241064279"></a>5.4 Docker Image Structure
 
 Both images share the same application layers and differ only in the base image and entry point. The Container App image (Dockerfile.v2) is shown below; the Function App image (Dockerfile.funcapp) is shown in section 5.2.4.
 
@@ -1182,19 +1124,17 @@ Security notes (apply to both images):
 - Dependencies pinned with version ranges in requirements.txt and requirements.funcapp.txt
 - Images are built by ACR Tasks in Azure — no local Docker daemon or developer workstation is part of the supply chain
 
-<a id="_Toc241064280"></a>
-## 5.5 Open items for implementation
+## <a id="_Toc241064280"></a>5.5 Open items for implementation
 
 1. http timeouts within the MCP server - check on this further for long running operations
 
-- Please check if it will be http triggers and for sync calls in function app on timeouts **– Ignite scope**
+  - Please check if it will be http triggers and for sync calls in function app on timeouts **– Ignite scope**
 
-2.       Also for MCP extension of function app - if there is a different mechanism of communication/timeouts etc., **- Ignite scope**
+2. Also for MCP extension of function app - if there is a different mechanism of communication/timeouts etc., **- Ignite scope**
 
-**3.      ** Implementation of MCP server deployment via Azure function app extension **– Ignite scope**
+3. Implementation of MCP server deployment via Azure function app extension **– Ignite scope**
 
-<a id="_Toc241064281"></a>
-# 6. MCP Tools — Detailed Design
+# <a id="_Toc241064281"></a>6. MCP Tools — Detailed Design
 
 **Definitions –**
 
@@ -1257,8 +1197,7 @@ Characteristics:
 
 The MCP Server exposes 4 tools via the Model Context Protocol. These tools form a structured workflow: discover → query → classify → drill-down.
 
-<a id="_Toc241064282"></a>
-## 6.1 Tool Inventory
+## <a id="_Toc241064282"></a>6.1 Tool Inventory
 
 | **Tool** | **File** | **Purpose** | **When to Call** |
 |---|---|---|---|
@@ -1267,8 +1206,7 @@ The MCP Server exposes 4 tools via the Model Context Protocol. These tools form 
 | **deeper_rca_analysis** | tools/deeper_rca_analysis.py | Re-classify raw rows from a prior execute_query | Only when initial query lacked analysis_type |
 | **get_details** | tools/result_cache.py | Progressive disclosure — drill into cached results by category | After execute_query, to get detail on specific findings |
 
-<a id="_Toc241064283"></a>
-## 6.2 get_schema — Schema Discovery
+## <a id="_Toc241064283"></a>6.2 get_schema — Schema Discovery
 
 Signature:
 
@@ -1305,8 +1243,7 @@ Return structure (per table):
 }
 ```
 
-<a id="_Toc241064284"></a>
-## 6.3 execute_query — Query Execution & Classification
+## <a id="_Toc241064284"></a>6.3 execute_query — Query Execution & Classification
 
 Signature:
 
@@ -1351,8 +1288,7 @@ Security — Query Guard:
 | **SQL write keywords** | INSERT INTO, UPDATE SET, DELETE FROM, DROP TABLE, TRUNCATE | Reject with error message |
 | **Row cap** | No take/limit clause in KQL | Auto-append '| take 1000' |
 
-<a id="_Toc241064285"></a>
-## 6.4 deeper_rca_analysis — Post-hoc Classification
+## <a id="_Toc241064285"></a>6.4 deeper_rca_analysis — Post-hoc Classification
 
 Signature:
 
@@ -1366,8 +1302,7 @@ def deeper_rca_analysis(
 
 This tool is a secondary classification step — call it only when execute_query was run without an analysis_type and you want to classify the results after the fact. In normal workflow, execute_query handles classification automatically.
 
-<a id="_Toc241064286"></a>
-## 6.5 get_details — Progressive Disclosure
+## <a id="_Toc241064286"></a>6.5 get_details — Progressive Disclosure
 
 Signature:
 
@@ -1386,8 +1321,7 @@ Behavior:
 - If no category or no classified result: returns paginated raw rows
 - Returns has_more flag for continued pagination
 
-<a id="_Toc241064287"></a>
-## 6.6 MCP Tools Sub-Diagram
+## <a id="_Toc241064287"></a>6.6 MCP Tools Sub-Diagram
 
 ```text
 ┌─────────────────────────────── MCP Tools Architecture ─────────────────────────────────┐
@@ -1445,23 +1379,18 @@ Behavior:
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-<a id="_Toc241064288"></a>
-## 6.7 Open items for implementation
+## <a id="_Toc241064288"></a>6.7 Open items for implementation
 
 **All below items are Ignite Scope**
 - The coding in the tools need to be validated in detail – for actual implementation
 - The tools logic right now, If there are any flaws need to be taken care of
 - New tool to be added **-** to ensure MCP surfaces all SID's it has and for each SID - what all provider's are supported for data availability
+  - So that agent should not do multiple turns of running the KQL query on a table where there is no data available for an SID - due to provider not created
+  - For example - OS provider is not enabled for all app servers of an SID - but agent will know that only when it queries the OS table for that SID on that VM name - we can avoid this additional agent turn by surfacing the data available info in a new MCP tool already
 
--          So that agent should not do multiple turns of running the KQL query on a table where there is no data available for an SID - due to provider not created
+# <a id="_Toc241064289"></a>7. Token-Optimized Implementation
 
--          For example - OS provider is not enabled for all app servers of an SID - but agent will know that only when it queries the OS table for that SID on that VM name - we can avoid this additional agent turn by surfacing the data available info in a new MCP tool already
-
-<a id="_Toc241064289"></a>
-# 7. Token-Optimized Implementation
-
-<a id="_Toc241064290"></a>
-## 7.1 The Problem: Raw Rows vs. Structured Findings
+## <a id="_Toc241064290"></a>7.1 The Problem: Raw Rows vs. Structured Findings
 
 Without optimization, a KQL query returning 1000 rows would consume significant LLM context tokens (~50K-100K tokens). The agent would need to parse, classify, and reason over raw data — wasting tokens and degrading response quality.
 
@@ -1472,8 +1401,7 @@ Without optimization, a KQL query returning 1000 rows would consume significant 
 
 Token savings: 80-90% reduction by pre-classifying on the server side.
 
-<a id="_Toc241064291"></a>
-## 7.2 TOON Format (Tool Output Optimization Notation)
+## <a id="_Toc241064291"></a>7.2 TOON Format (Tool Output Optimization Notation)
 
 TOON is a post-processing format applied to every MCP tool response before returning to the model. It is implemented in tools/toon_formatter.py.
 
@@ -1511,8 +1439,7 @@ Example TOON-formatted response:
 }
 ```
 
-<a id="_Toc241064292"></a>
-## 7.3 Analyzer Pipeline
+## <a id="_Toc241064292"></a>7.3 Analyzer Pipeline
 
 The server uses a plugin-based analyzer architecture. Each analyzer is a Python module in the analyzers/ package, auto-discovered at import time via the @register decorator. No explicit registration file is needed.
 
@@ -1539,9 +1466,7 @@ Analyzer registration pattern:
 # analyzers/short_dumps.py
 from analyzers import register
 @register("short_dumps")
-```python
 def analyze(rows: list[dict], context: str = "") -> dict:
-```
     # Classification logic using domain_knowledge functions
     classified = classify_runtime_errors(rows)
     return {
@@ -1554,8 +1479,7 @@ def analyze(rows: list[dict], context: str = "") -> dict:
     }
 ```
 
-<a id="_Toc241064293"></a>
-## 7.4 Generic Summarizer
+## <a id="_Toc241064293"></a>7.4 Generic Summarizer
 
 When execute_query has no matching analysis_type, the generic summarizer (tools/generic_summarizer.py) produces a compact statistical summary instead of returning raw rows. This ensures the agent never receives unbounded row data.
 
@@ -1567,8 +1491,7 @@ Generic summarizer output:
 - 3 representative sample rows (first, middle, last)
 - Total row count + query_id for get_details() drill-down
 
-<a id="_Toc241064294"></a>
-## 7.5 Result Cache & Progressive Disclosure
+## <a id="_Toc241064294"></a>7.5 Result Cache & Progressive Disclosure
 
 The result cache (tools/result_cache.py) stores full query results server-side so the agent can drill down without re-running queries.
 
@@ -1593,8 +1516,7 @@ Progressive disclosure workflow:
 
 Total tokens consumed: ~8K (vs ~80K for raw 1000 rows)
 
-<a id="_Toc241064295"></a>
-## 7.6 Token Optimization Sub-Diagram
+## <a id="_Toc241064295"></a>7.6 Token Optimization Sub-Diagram
 
 ```text
 ┌─────────────────── Token Optimization Pipeline ──────────────────────────────────────┐
@@ -1651,26 +1573,21 @@ Total tokens consumed: ~8K (vs ~80K for raw 1000 rows)
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-<a id="_Toc241064296"></a>
-## 7.7 Open items for implementation
+## <a id="_Toc241064296"></a>7.7 Open items for implementation
 
 **All below items are Ignite Scope**
 - Check for code logic flow in detail in this whole implementation
 - Results cache store – need to be finalized  - whether it should be Redis cache or some other
-
--          Since the current Function app/Container app host VM – is not a viable options considering the scaling of function app hosts – Please check if dedicated function app host with good memory would be a viable option?
+  - Since the current Function app/Container app host VM – is not a viable options considering the scaling of function app hosts – Please check if dedicated function app host with good memory would be a viable option?
 - In Results cache - check more on pagination in code logic - if it goes beyond 5mins - how the invalidation of cache should happen
 - For a given query id with hash that the agent has received from execute_query -\> if the next tool get_details  call is made with the query id - if results are not sufficient for RCA analysis
-
--          For agent to further ask more details via get-details tool - check more on how the pagination works
+  - For agent to further ask more details via get-details tool - check more on how the pagination works
 - For agent to ask for a different time frame data - it may rerun the execute query again and get new query id
 - But since the TTL was put for 5mins(also check if this time has to be increased further?) only, the earlier query hash id will also be used again by Agent - should a cache invalidation logic would be required to add
 
-<a id="_Toc241064297"></a>
-# 8. Skills & Domain Knowledge
+# <a id="_Toc241064297"></a>8. Skills & Domain Knowledge
 
-<a id="_Toc241064298"></a>
-## 8.1 Where to Create Skills
+## <a id="_Toc241064298"></a>8.1 Where to Create Skills
 
 Skills (domain expertise) can be added at two levels, each with different trade-offs:
 
@@ -1685,8 +1602,7 @@ Guidance:
 - If the skill is about KQL generation patterns → add kql_hints to the schema registry
 - In many cases, skills span both levels: schema hints + analyzer in MCP, workflow instructions/skills in Agent
 
-<a id="_Toc241064299"></a>
-### 8.1.1 Agent-Side Skills for Known Issue Patterns
+### <a id="_Toc241064299"></a>8.1.1 Agent-Side Skills for Known Issue Patterns
 
 A skill is a named investigation procedure attached to the Agent. It encodes the diagnostic path an experienced SAP Basis engineer would follow for a recognised symptom: which data to retrieve, in what order, what to correlate, and when the evidence is sufficient to reach a conclusion.
 
@@ -1699,8 +1615,7 @@ Skills do not replace the MCP Server's domain knowledge. The two act on differen
 
 Turn count matters disproportionately because every agent turn re-sends the accumulated conversation, including all previous tool results. Cost therefore grows faster than linearly with the number of turns, and the later turns in an investigation are the most expensive. Reducing the number of turns yields a larger saving than reducing the size of each individual result.
 
-<a id="_Toc241064300"></a>
-### 8.1.2 How a Skill Reduces Turns
+### <a id="_Toc241064300"></a>8.1.2 How a Skill Reduces Turns
 
 Without a skill the Agent must infer the investigation path at run time, which introduces broad schema retrieval, speculative queries, and corrective steps:
 
@@ -1729,8 +1644,7 @@ The reduction comes from four distinct effects:
 - Parallelisable steps — steps the skill marks as independent can be issued within a single turn
 - Defined exit criteria — the Agent stops when the evidence threshold is met, instead of continuing to explore
 
-<a id="_Toc241064301"></a>
-### 8.1.3 Anatomy of a Skill
+### <a id="_Toc241064301"></a>8.1.3 Anatomy of a Skill
 
 | **Element** | **Purpose** | **Example** |
 |---|---|---|
@@ -1742,8 +1656,7 @@ The reduction comes from four distinct effects:
 | **Exit criteria** | When the evidence is sufficient to stop | Root cause identified, or all defined steps exhausted |
 | **Escalation path** | What to report when the outcome is inconclusive | Findings gathered, hypotheses ruled out, recommended next action |
 
-<a id="_Toc241064302"></a>
-### 8.1.4 Division of Responsibility
+### <a id="_Toc241064302"></a>8.1.4 Division of Responsibility
 
 Skills and server-side domain knowledge must not overlap. If a skill begins to encode domain classification, it will drift out of step with the analyzers as they evolve.
 
@@ -1761,15 +1674,13 @@ Skills and server-side domain knowledge must not overlap. If a skill begins to e
 
 **The governing rule is that a skill names what to look at, while the server determines what it means**. A skill that starts listing error categories or numeric thresholds has absorbed server responsibility and will fall out of step with the analyzers.
 
-<a id="_Toc241064303"></a>
-### 8.1.5 Governance
+### <a id="_Toc241064303"></a>8.1.5 Governance
 - Skills are versioned alongside the Agent configuration and reviewed in the same way as code
 - Each skill records the scenario it was derived from, so it can be revalidated when that scenario changes
 - **Skill effectiveness is measured from the telemetry described in section 10 — turn count and tool calls per investigation, compared before and after the skill is introduced**
 - A skill that needs updating whenever an analyzer changes indicates that domain logic has leaked into it and should be moved back to the MCP Server
 
-<a id="_Toc241064304"></a>
-## 8.2 MCP Server Domain Knowledge Architecture
+## <a id="_Toc241064304"></a>8.2 MCP Server Domain Knowledge Architecture
 
 The MCP Server's domain knowledge is organized in a registry pattern with three layers:
 
@@ -1805,8 +1716,7 @@ The MCP Server's domain knowledge is organized in a registry pattern with three 
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-<a id="_Toc241064305"></a>
-## 8.3 Agent-Side Skills vs. MCP Server Skills
+## <a id="_Toc241064305"></a>8.3 Agent-Side Skills vs. MCP Server Skills
 
 Example comparison — investigating a short dump spike:
 
@@ -1819,8 +1729,7 @@ Example comparison — investigating a short dump spike:
 | **5. get_details(query_id, 'UNCAUGHT_EXCEPTION')** | MCP Server | Result cache returns detail slice for that category |
 | **6. Agent correlates with SM21** | Agent | Agent instruction: 'Cross-reference with system logs for correlated events' |
 
-<a id="_Toc241064306"></a>
-## 8.4 Adding a New Domain / Skill
+## <a id="_Toc241064306"></a>8.4 Adding a New Domain / Skill
 
 To add a new SAP domain to the MCP Server:
 
@@ -1842,8 +1751,7 @@ To add a new skill to the Agent:
 
 3. No MCP Server redeployment needed
 
-<a id="_Toc241064307"></a>
-# 9. Security Controls Summary
+# <a id="_Toc241064307"></a>9. Security Controls Summary
 
 | **#** | **Control** | **Category** | **Implementation** |
 |---|---|---|---|
@@ -1864,15 +1772,13 @@ To add a new skill to the Agent:
 
 Identity summary: two distinct identities are involved and neither requires a stored secret. Inbound, the calling agent presents an Entra ID token that EasyAuth validates at the platform layer. Outbound, the MCP Server presents its own System-Assigned Managed Identity to Azure Monitor. The MCP Server therefore reads exactly the SAP telemetry that the AMS monitor already collects, under the identity that AMS already governs.
 
-<a id="_Toc241064308"></a>
-# 10. Telemetry, Logging & Investigation Traceability
+# <a id="_Toc241064308"></a>10. Telemetry, Logging & Investigation Traceability
 
 **Status: proposed design. Not yet implemented.**  This section documents the intended approach for review and agreement. No telemetry instrumentation has been added to the MCP Server codebase. The design is recorded now so that it can be reviewed, refined, and scheduled independently of the deployment work described in section 5.
 
 The MCP Server sits between the AI Agent and the SAP telemetry held in Log Analytics. Because the Agent decides at run time which tools to call and which KQL to generate, the sequence of actions taken during an investigation is not fixed and cannot be inferred from the code alone. Structured telemetry emitted by the MCP Server is therefore the only reliable record of what actually happened during a given conversation.
 
-<a id="_Toc241064309"></a>
-## 10.1 Objectives
+## <a id="_Toc241064309"></a>10.1 Objectives
 
 The telemetry design must allow an operator, reviewer, or auditor to answer the following questions for any past investigation, without access to the Agent's internal state.
 
@@ -1889,8 +1795,7 @@ The telemetry design must allow an operator, reviewer, or auditor to answer the 
 | **9** | Which calls failed, and why? |
 | **10** | Can the full investigation be replayed as a single ordered sequence? |
 
-<a id="_Toc241064310"></a>
-## 10.2 Current State and Gap
+## <a id="_Toc241064310"></a>10.2 Current State and Gap
 
 The MCP Server currently emits only startup logging — module import confirmation and the list of registered tools. Individual tool invocations are not instrumented. Platform telemetry from the Function App records that an HTTP request occurred, but not which MCP tool it resolved to, because all MCP traffic is carried over a single HTTP endpoint.
 
@@ -1905,8 +1810,7 @@ The MCP Server currently emits only startup logging — module import confirmati
 
 The gap is therefore a per-tool-call structured event emitted by the MCP Server itself, correlated across a conversation. Everything else already exists at the platform layer.
 
-<a id="_Toc241064311"></a>
-## 10.3 Correlation Model
+## <a id="_Toc241064311"></a>10.3 Correlation Model
 
 Traceability depends on a correlation hierarchy that links an individual Log Analytics query back to the conversation that caused it. Four identifiers are used, three of which are new and one of which already exists in the implementation.
 
@@ -1920,7 +1824,6 @@ Traceability depends on a correlation hierarchy that links an individual Log Ana
 ```text
 conversation_id = conv_7f3a91
   (one user investigation: "why did CHA slow down after 14:00?")
-```text
     |
     +-- mcp_session_id = sess_c41d          (MCP protocol session)
     |     |
@@ -1951,14 +1854,11 @@ conversation_id = conv_7f3a91
     |            query_id         : q_9911fe02
     |            rows_returned    : 288
     |            duration_ms      : 1120
-```
-
   Every record carries conversation_id, so the entire investigation can be
-```
   retrieved and replayed in order with a single query.
+```
 
-<a id="_Toc241064312"></a>
-## 10.4 Event Schema
+## <a id="_Toc241064312"></a>10.4 Event Schema
 
 A single structured event type covers every tool invocation. Emitting one consistent schema rather than per-tool shapes keeps querying simple and avoids schema drift as new tools are added.
 
@@ -1996,14 +1896,12 @@ A single structured event type covers every tool invocation. Emitting one consis
 | **category** | string | get_details | Category drilled into |
 | **cache_hit** | bool | get_details | Whether the cached result was still available |
 
-<a id="_Toc241064313"></a>
-## 10.5 Emission Points
+## <a id="_Toc241064313"></a>10.5 Emission Points
 
 Instrumentation is applied as a single decorator wrapping each registered MCP tool, so the event schema is produced in one place and new tools are instrumented automatically.
 
 ```text
 MCP tool invocation
-```text
         |
         v
   +--------------------------------------------------------------+
@@ -2029,16 +1927,13 @@ MCP tool invocation
                                  |
                                  v
           stdout (JSON)  ->  Application Insights  ->  Log Analytics
-```
-
   Failures are emitted by the same path with status = error or rejected,
-```
   so an investigation that went wrong is as traceable as one that succeeded.
+```
 
 Table names are derived by parsing the submitted KQL for table references before execution. This is required because the Agent composes the query at run time, so the set of tables touched is not known statically. The parsed list is recorded even when the query is subsequently rejected by the read-only guard, which preserves evidence of what was attempted.
 
-<a id="_Toc241064314"></a>
-## 10.6 Telemetry Destination
+## <a id="_Toc241064314"></a>10.6 Telemetry Destination
 
 Application Insights is already provisioned alongside the MCP Function App. Structured events written to standard output are collected automatically and are queryable in Log Analytics, so no additional infrastructure is required.
 
@@ -2053,8 +1948,7 @@ Application Insights is already provisioned alongside the MCP Function App. Stru
 
 An important separation: MCP Server telemetry describes the behaviour of the server and is operational data. It is distinct from the SAP telemetry that the MCP Server reads. Writing MCP telemetry to a separate workspace or to a dedicated Application Insights resource keeps operational noise out of the AMS SAP monitoring data.
 
-<a id="_Toc241064315"></a>
-## 10.7 Example Operator Queries
+## <a id="_Toc241064315"></a>10.7 Example Operator Queries
 
 Replay a full investigation in order:
 
@@ -2127,8 +2021,7 @@ traces
           by analysis_type = tostring(customDimensions.analysis_type)
 | order by total_raw desc
 ```
-<a id="_Toc241064316"></a>
-## 10.8 Data Protection in Telemetry
+## <a id="_Toc241064316"></a>10.8 Data Protection in Telemetry
 
 Telemetry must be detailed enough to reconstruct an investigation without becoming a secondary copy of the SAP data being investigated. The following rules apply.
 
@@ -2143,8 +2036,7 @@ Telemetry must be detailed enough to reconstruct an investigation without becomi
 
 The MCP Server records what was asked of Log Analytics and what shape the answer had. It does not record the answer itself. This keeps the operational value high while limiting the sensitivity of the telemetry store.
 
-<a id="_Toc241064317"></a>
-## 10.9 Implementation Plan (Not Yet Scheduled)
+## <a id="_Toc241064317"></a>10.9 Implementation Plan (Not Yet Scheduled)
 
 The following work items would deliver the design above. None have been started. They are listed to size the effort and to show that the change is additive and low risk.
 
@@ -2163,23 +2055,21 @@ The following work items would deliver the design above. None have been started.
 
 The work is additive. No existing tool signature or return shape changes, so the Agent requires no modification other than optionally supplying a conversation identifier. If the Agent does not supply one, the MCP session identifier is used as the correlation key and traceability is retained at session granularity.
 
-<a id="_Toc241064318"></a>
-## 10.10 Open items for implementation
+## <a id="_Toc241064318"></a>10.10 Open items for implementation
 
 1. Whole Telemetry section – need to be implemented – was not covered as part of POC code **– Ignite scope**
 
 2. Telemetry - Agent learning from execution path within the MCP server for a given analysis – **beyond Ignite scope**
-- Telemetry - also have ways/design on how to add the learning - for the whole conversation that happened within the MCP server - how agent can be made aware of the analysis path taken for latter learning by Agent to be able to use
+  - Telemetry - also have ways/design on how to add the learning - for the whole conversation that happened within the MCP server - how agent can be made aware of the analysis path taken for latter learning by Agent to be able to use
 
 3. Telemetry - MCP service logs for our Monitoring to enable them as Agent skills **– Beyond Ignite scope**
-- how we can use the telemetry that we are going to receive at service layer - eventually to make them as agent skills to better/optimize the investigation path
-- Also ensure to receive these logs in AMS service into a new kusto table - since the schema of these logs will be different from the schema of provider logs in collector platform
+  - how we can use the telemetry that we are going to receive at service layer - eventually to make them as agent skills to better/optimize the investigation path
+  - Also ensure to receive these logs in AMS service into a new kusto table - since the schema of these logs will be different from the schema of provider logs in collector platform
 
-4.Agent self Learning - feedback loop enablement **– Beyond Ignite scope**
-- have agent learning from its own earlier conversations - not for ignite scope - see the capability for north star on how the sessions learning can be used by Agent so that next conversations can be relearned and get better - this will become important USP - eventually for cross customer benefit
+4. Agent self Learning - feedback loop enablement **– Beyond Ignite scope**
+  - have agent learning from its own earlier conversations - not for ignite scope - see the capability for north star on how the sessions learning can be used by Agent so that next conversations can be relearned and get better - this will become important USP - eventually for cross customer benefit
 
-<a id="_Toc241064319"></a>
-# 11. Appendix — Configuration Reference
+# <a id="_Toc241064319"></a>11. Appendix — Configuration Reference
 
 | **Variable** | **Default** | **Required** | **Description** |
 |---|---|---|---|
