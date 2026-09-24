@@ -1572,7 +1572,8 @@ SCHEMAS: dict[str, dict] = {
                     "Fixed-width composite key: chars 0-39 = transaction code or ABAP report/class "
                     "(e.g. 'SAPMHTTP', 'RSM13000', 'CL_ABAP_PARALLEL==============CP'), "
                     "chars 40-71 = job name for background work, last char = record type ('R'). "
-                    "ALWAYS trim: trim(' ', substring(ENTRY_ID_s, 0, 40))."
+                    "ALWAYS trim with a REGEX quantifier: trim(' +', substring(ENTRY_ID_s, 0, 40)). "
+                    "trim(' ', ...) strips only ONE space and leaves the padding in place."
                 ),
             },
             "ACCOUNT_s": {"type": "string", "description": "SAP user account that executed the object in this interval."},
@@ -1641,8 +1642,8 @@ SCHEMAS: dict[str, dict] = {
         },
         "kql_hints": [
             "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
-            "ENTRY_ID_s is fixed-width and space-padded — ALWAYS trim: | extend tcode = trim(' ', substring(ENTRY_ID_s, 0, 40))",
-            "Background job name is in the same field: | extend job = trim(' ', substring(ENTRY_ID_s, 40, 32))",
+            "ENTRY_ID_s is fixed-width and space-padded. KQL trim() takes a REGEX, so you MUST use a quantifier: | extend tcode = trim(' +', substring(ENTRY_ID_s, 0, 40)). Using trim(' ', ...) removes only one space, leaving 39 trailing spaces, and every == comparison then silently returns 0 rows.",
+            "Background job name is in the same field: | extend job = trim(' +', substring(ENTRY_ID_s, 40, 32))",
             "This table has TWO row formats. ~99% use raw SWNC columns (TASKTYPE_s, COUNT_d, RESPTI_d, CPUTI_d); ~1% use derived columns (Task_Type_s, Total_Steps_d, ST03_*). Prefer the raw columns and coalesce task type: | extend tt = coalesce(TASKTYPE_s, Task_Type_s)",
             "Task_Type_Name_s is normally EMPTY on this table — decode TASKTYPE_s yourself or join to SapNetweaver_SWNC_CL on the hex code.",
             "Averages must be computed: | summarize steps = sum(COUNT_d), resp_ms = sum(RESPTI_d), cpu_ms = sum(CPUTI_d) by tcode | extend avg_resp_ms = resp_ms / steps | top 20 by resp_ms desc",
@@ -1887,7 +1888,8 @@ SCHEMAS: dict[str, dict] = {
                 "description": (
                     "Fixed-width composite key: chars 0-39 = transaction/report/class "
                     "(e.g. 'RFC', 'CL_ABAP_PARALLEL==============CP'), chars 40-71 = job name, "
-                    "last char = record type. ALWAYS trim: trim(' ', substring(ENTRY_ID_s, 0, 40))."
+                    "last char = record type. ALWAYS trim with a REGEX quantifier: trim(' +', substring(ENTRY_ID_s, 0, 40)). "
+                    "trim(' ', ...) strips only ONE space and leaves the padding in place."
                 ),
             },
             "ACCOUNT_s": {"type": "string", "description": "SAP user account that executed the object (e.g. 'SAP_SYSTEM')."},
@@ -1909,7 +1911,7 @@ SCHEMAS: dict[str, dict] = {
         },
         "kql_hints": [
             "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
-            "ENTRY_ID_s is space-padded — ALWAYS trim: | extend obj = trim(' ', substring(ENTRY_ID_s, 0, 40))",
+            "ENTRY_ID_s is space-padded. KQL trim() takes a REGEX, so use a quantifier: | extend obj = trim(' +', substring(ENTRY_ID_s, 0, 40)). trim(' ', ...) strips only one space and every == comparison then silently returns 0 rows.",
             "All memory columns are in BYTES. Convert for reporting: | extend peak_mb = MAXBYTES_d / 1024 / 1024",
             "Top memory consumers: | summarize peak_bytes = max(MAXBYTES_d), total_bytes = sum(MEMSUM_d) by obj | top 20 by peak_bytes desc",
             "PRIV-mode offenders (highest priority): | where PRIVCOUNT_d > 0 or RESTCOUNT_d > 0 | summarize sum(PRIVCOUNT_d), sum(RESTCOUNT_d) by obj",
