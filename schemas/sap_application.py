@@ -42,9 +42,6 @@ SCHEMAS: dict[str, dict] = {
             }
         ],
         "data_source": "SAP RFC /SDF/GET_DUMP_LOG",
-        # ⚠ CONFIRM NEEDED: CSV says 'serverTimestamp_t'; agent documentation says 'timestamp_t'.
-        # Both may exist in the table (serverTimestamp_t = collection time, timestamp_t = SAP event time).
-        # Update this after confirming against your actual workspace.
         "time_column": "serverTimestamp_t",
         "sid_column": "SID_s",
         "key_columns": [
@@ -56,154 +53,38 @@ SCHEMAS: dict[str, dict] = {
         ],
         "analysis_type": "short_dumps",
         "columns": {
-            "Application_Componen_s": {
-                "type": "string",
-                "description": (
-                    "High-level SAP functional area where the error occurred "
-                    "(e.g., FI, MM, SD). Categorises the error by business domain. "
-                    "Note: column name ends with '_s' and is intentionally truncated (no trailing 't')."
-                ),
-            },
-            "Component_s": {
-                "type": "string",
-                "description": (
-                    "SAP technical component in the official SAP component hierarchy "
-                    "(e.g., LO-VCH, PPM-CF, BC-CST-EQ). More specific sub-classification "
-                    "than Application_Componen_s. Used in OSS support notes."
-                ),
-            },
-            "Development_Class_s": {
-                "type": "string",
-                "description": (
-                    "ABAP package (development class) — technical grouping of the object "
-                    "in the SAP repository (e.g., SENQ, INM_CPPM, VCH_HL_CORE). "
-                    "Indicates code ownership and transport layer."
-                ),
-            },
-            "E2E_DATE_s": {
-                "type": "string",
-                "description": (
-                    "Date when the dump occurred in the SAP system (SAP date string format YYYYMMDD). "
-                    "Pair with E2E_TIME_s to reconstruct the exact SAP system event time."
-                ),
-            },
-            "E2E_HOST_s": {
-                "type": "string",
-                "description": (
-                    "Server/host name where the ABAP dump was triggered. "
-                    "Use to identify which application server is experiencing errors."
-                ),
-            },
-            "E2E_SEVERITY_s": {
-                "type": "string",
-                "description": (
-                    "Error severity indicator. Known values: "
-                    "'1' = Very High Priority, '2' = High Priority."
-                ),
-            },
-            "E2E_TIME_s": {
-                "type": "string",
-                "description": (
-                    "Time when the dump occurred in the SAP system (string format HHMMSS). "
-                    "Pair with E2E_DATE_s. Not a datetime — do not use for KQL time filters."
-                ),
-            },
-            "E2E_USER_s": {
-                "type": "string",
-                "description": (
-                    "SAP user ID that was active when the dump occurred. "
-                    "For background jobs this is the job step user (technical/batch user). "
-                    "Key for identifying whether a specific user or job is causing failures."
-                ),
-            },
-            "Error_Short_Text_s": {
-                "type": "string",
-                "description": (
-                    "Brief human-readable description of the error, as shown in ST22 transaction. "
-                    "Provides immediate context on what failed. Key field for initial diagnosis."
-                ),
-            },
-            "Exception_s": {
-                "type": "string",
-                "description": (
-                    "ABAP exception class or name that was raised (for object-oriented exceptions). "
-                    "E.g., CX_SY_NO_HANDLER, CX_BSEG_LOCKED. "
-                    "Empty for classic runtime errors like TIME_OUT or RFC failures."
-                ),
-            },
-            "Program_s": {
-                "type": "string",
-                "description": (
-                    "ABAP program or report in which the dump occurred. "
-                    "Examples: SAPLSENA, SAPLRPM_FICO_INT_DATA, CL_VCH_HL_ENGINE_FACTORY======CP. "
-                    "Primary field for identifying which code is failing."
-                ),
-            },
-            "Runtime_Error_s": {
-                "type": "string",
-                "description": (
-                    "ABAP runtime error ID — matches the ST22 dump category exactly. "
-                    "Examples: UNCAUGHT_EXCEPTION, TIME_OUT, CALL_FUNCTION_OPEN_ERROR, "
-                    "TSV_TNEW_PAGE_ALLOC_FAILED, DBIF_RSQL_SQL_ERROR. "
-                    "PRIMARY field for root cause classification — use this to determine error category."
-                ),
-            },
-            "serverTimestamp_t": {
-                "type": "datetime",
-                "description": (
-                    "UTC timestamp of the dump (as recorded by the SAP Monitor collection agent). "
-                    "Use for KQL time range filters. "
-                    "⚠ CONFIRM: CSV lists this as the time column. Agent docs reference 'timestamp_t' — "
-                    "verify which is correct in your workspace."
-                ),
-            },
-            "Transaction_ID_s": {
-                "type": "string",
-                "description": (
-                    "Unique identifier (GUID-like or LUW ID) of the transaction/session "
-                    "during which the error occurred. Technical correlation identifier "
-                    "for cross-system tracing."
-                ),
-            },
-            "SID_s": {
-                "type": "string",
-                "description": (
-                    "SAP System ID (e.g., 'CHA', 'PRD', 'QAS'). "
-                    "ALWAYS include this filter: | where SID_s == '<sid>'"
-                ),
-            },
-            "hostname_s": {
-                "type": "string",
-                "description": (
-                    "Application server hostname. "
-                    "Cross-reference with SysLogs and OS metrics tables."
-                ),
-            },
-            "instanceNr_s": {
-                "type": "string",
-                "description": (
-                    "SAP instance number (e.g., '00', '01'). "
-                    "Cross-reference with availability tables."
-                ),
-            },
-            "client_s": {
-                "type": "string",
-                "description": "SAP client number (e.g., '100', '300').",
-            },
-            "sapsid_s": {
-                "type": "string",
-                "description": "Alternate SAP SID column (same value as SID_s).",
-            },
+            "Application_Componen_s": {"type": "string", "description": "SAP functional area of the error (FI, MM, SD). Column name is intentionally truncated — no trailing 't'."},
+            "Component_s": {"type": "string", "description": "SAP technical component in the official hierarchy (e.g. LO-VCH, BC-CST-EQ). Used when raising OSS notes."},
+            "Development_Class_s": {"type": "string", "description": "ABAP package / development class (e.g. SENQ, VCH_HL_CORE). Indicates code ownership and transport layer."},
+            "E2E_DATE_s": {"type": "string", "description": "Dump date in the SAP system, string YYYYMMDD. Pair with E2E_TIME_s. Not usable in KQL time filters."},
+            "E2E_HOST_s": {"type": "string", "description": "Application server where the dump occurred."},
+            "E2E_SEVERITY_s": {"type": "string", "description": "Severity: '1' = Very High, '2' = High."},
+            "E2E_TIME_s": {"type": "string", "description": "Dump time in the SAP system, string HHMMSS. Not usable in KQL time filters."},
+            "E2E_USER_s": {"type": "string", "description": "SAP user active when the dump occurred; for background jobs this is the job step user."},
+            "Error_Short_Text_s": {"type": "string", "description": "Brief error description as shown in ST22. Key field for initial diagnosis."},
+            "Exception_s": {"type": "string", "description": "ABAP exception class raised (e.g. CX_SY_NO_HANDLER). Empty for classic runtime errors like TIME_OUT."},
+            "Program_s": {"type": "string", "description": "ABAP program/report where the dump occurred (e.g. SAPLSENA, CL_VCH_HL_ENGINE_FACTORY======CP). Primary field for identifying failing code."},
+            "Runtime_Error_s": {"type": "string", "description": "ABAP runtime error ID, matching the ST22 dump category (UNCAUGHT_EXCEPTION, TIME_OUT, TSV_TNEW_PAGE_ALLOC_FAILED, DBIF_RSQL_SQL_ERROR). PRIMARY field for root cause classification."},
+            "serverTimestamp_t": {"type": "datetime", "description": "UTC collection timestamp. USE THIS for KQL time filters."},
+            "Transaction_ID_s": {"type": "string", "description": "LUW / session identifier for the transaction that dumped. Technical correlation ID for cross-system tracing."},
+            "SID_s": {"type": "string", "description": "SAP System ID (e.g. 'CHA'). ALWAYS filter: | where SID_s == '<sid>'"},
+            "hostname_s": {"type": "string", "description": "Application server hostname. Cross-reference with SysLogs and OS metrics."},
+            "instanceNr_s": {"type": "string", "description": "SAP instance number (e.g. '00'). Cross-reference with availability tables."},
+            "client_s": {"type": "string", "description": "SAP client number (e.g. '100')."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column (same value as SID_s)."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
         },
         "kql_hints": [
-            "ALWAYS filter by the sid_column shown in this schema (SID_s for this table): | where SID_s == '<sid>'",
-            "Use the time_column shown in this schema (serverTimestamp_t for this table): | where serverTimestamp_t > ago(4h)",
-            "Summarize by Runtime_Error_s (dominant error category), Program_s (failing ABAP programs), E2E_USER_s (user/batch account), and E2E_HOST_s (app server) — run as a single summarize count() by these four columns to get the full failure breakdown in one query.",
-            "Use bin(serverTimestamp_t, 5m) to detect when dumps started and if volume is increasing.",
-            "Runtime_Error_s starting with 'MEMORY_' or 'SYSTEM_NO_' indicate resource pressure.",
-            "Runtime_Error_s 'DBIF_*' or 'DBSQL_*' indicate database errors.",
-            "Runtime_Error_s 'CALL_FUNCTION_*' indicate RFC communication failures.",
+            "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
+            "Use serverTimestamp_t for time filters: | where serverTimestamp_t > ago(4h)",
+            "Full failure breakdown in one query: | summarize count() by Runtime_Error_s, Program_s, E2E_USER_s, E2E_HOST_s",
+            "Use bin(serverTimestamp_t, 5m) to detect when dumps started and whether volume is increasing.",
+            "Runtime_Error_s starting with 'MEMORY_' or 'SYSTEM_NO_' indicate resource pressure — drill into SapNetweaver_SWNC_Memory_CL for the consuming object.",
+            "Runtime_Error_s 'DBIF_*' or 'DBSQL_*' indicate database errors — check SapHana_BlockedTransactions_CL and SapHana_LongRunningTransactions_CL.",
+            "Runtime_Error_s 'CALL_FUNCTION_*' indicate RFC failures — check SapNetweaver_TransactionalRfc_CL and SapNetweaver_SWNC_RFC_Usage_CL.",
             "Correlate Program_s with batch job step programs when investigating job failures.",
+            "Log Analytics also created numeric twin columns (Application_Componen_d, Component_d, Development_Class_d, Error_Short_Text_d, Exception_d, Transaction_ID_d) from occasional type collisions. They are almost always null — always use the _s versions.",
         ],
     },
 
@@ -1658,6 +1539,383 @@ SCHEMAS: dict[str, dict] = {
             "ST03_Queue_Time_d > 0.01 indicates dispatcher/WP shortage — correlate with SMON DIAQ_d.",
             "Summarize avg(ST03_Avg_Resp_Time_d), sum(Total_Steps_d) by bin(serverTimestamp_t, 10m), Task_Type_Name_s for performance trending.",
             "Compare Total_DB_Seq_Read_Time_d vs Total_DB_Dir_Read_Time_d — high sequential = missing indexes or full table scans.",
+            "For per-transaction / per-user / per-RFC / per-memory attribution use the SapNetweaver_SWNC_*_CL sub-tables — this table is task-type level only.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 15B — SapNetweaver_SWNC_Transaction_CL  (ST03N per-transaction profile)
+    # Schema source: LA workspace (verified against sapmon-laws-d44c1e41d7949a)
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_SWNC_Transaction_CL": {
+        "table_name": "SapNetweaver_SWNC_Transaction_CL",
+        "domain": "sap_application",
+        "description": (
+            "ST03N transaction profile — SWNC workload aggregated PER TRANSACTION/REPORT per "
+            "collection interval. This is the per-tcode attribution layer: it answers "
+            "'which transaction or report consumed the response time / CPU / DB time'. "
+            "SapNetweaver_SWNC_CL only aggregates by task type; this table breaks it down by object."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — SWNC transaction profile",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "workload_statistics",
+        "key_columns": ["SID_s", "ENTRY_ID_s", "TASKTYPE_s", "COUNT_d", "RESPTI_d", "CPUTI_d"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "MANDT_s": {"type": "string", "description": "SAP client (MANDT) of the aggregated record."},
+            "ENTRY_ID_s": {
+                "type": "string",
+                "description": (
+                    "Fixed-width composite key: chars 0-39 = transaction code or ABAP report/class "
+                    "(e.g. 'SAPMHTTP', 'RSM13000', 'CL_ABAP_PARALLEL==============CP'), "
+                    "chars 40-71 = job name for background work, last char = record type ('R'). "
+                    "ALWAYS trim: trim(' ', substring(ENTRY_ID_s, 0, 40))."
+                ),
+            },
+            "ACCOUNT_s": {"type": "string", "description": "SAP user account that executed the object in this interval."},
+            "TASKTYPE_s": {
+                "type": "string",
+                "description": (
+                    "Task type code, hex form (e.g. 0x{02}=UPDATE, 0x{03}=SPOOL, 0x{04}=BCKGRD, "
+                    "0x{65}=HTTP, 0x{66}=HTTPS, 0x{FE}=RFC, 0x{F9}=Auto RFC, 0x{21}=OTHERS). "
+                    "Populated on the raw-format rows (~99% of rows)."
+                ),
+            },
+            "Task_Type_s": {"type": "string", "description": "Task type code on the derived-format rows only (~1% of rows). Use coalesce with TASKTYPE_s."},
+            "Task_Type_Name_s": {"type": "string", "description": "Decoded task type name — populated ONLY on derived-format rows. Usually EMPTY on this table."},
+            "COUNT_d": {"type": "real", "description": "Number of dialog steps / executions of this object in the interval. Denominator for all averages."},
+            "RESPTI_d": {"type": "real", "description": "Total response time across all executions (ms). Avg = RESPTI_d / COUNT_d."},
+            "CPUTI_d": {"type": "real", "description": "Total CPU time (ms). High CPUTI_d share of RESPTI_d = ABAP-bound object."},
+            "PROCTI_d": {"type": "real", "description": "Total ABAP processing time (ms)."},
+            "QUEUETI_d": {"type": "real", "description": "Total dispatcher queue wait time (ms). High = work process shortage."},
+            "ROLLWAITTI_d": {"type": "real", "description": "Total roll-wait time (ms) — waiting for RFC/GUI roundtrips."},
+            "CHNGTI_d": {"type": "real", "description": "Total DB change time (ms)."},
+            "CHNGCNT_d": {"type": "real", "description": "DB change operation count."},
+            "CHNGREC_d": {"type": "real", "description": "DB change record count."},
+            "READDIRTI_d": {"type": "real", "description": "Total DB direct read time (ms)."},
+            "READDIRCNT_d": {"type": "real", "description": "DB direct read count."},
+            "READDIRREC_d": {"type": "real", "description": "DB direct read record count."},
+            "READDIRBUF_d": {"type": "real", "description": "DB direct reads served from buffer."},
+            "READSEQTI_d": {"type": "real", "description": "Total DB sequential read time (ms). High = table scans / missing index."},
+            "READSEQCNT_d": {"type": "real", "description": "DB sequential read count."},
+            "READSEQREC_d": {"type": "real", "description": "DB sequential read record count."},
+            "READSEQBUF_d": {"type": "real", "description": "DB sequential reads served from buffer."},
+            "DBP_TIME_d": {"type": "real", "description": "DB procedure call time (ms)."},
+            "DBP_COUNT_d": {"type": "real", "description": "DB procedure call count."},
+            "DSQLCNT_d": {"type": "real", "description": "Native (direct) SQL statement count."},
+            "GUITIME_d": {"type": "real", "description": "Total GUI time (ms)."},
+            "GUINETTIME_d": {"type": "real", "description": "Total GUI network time (ms)."},
+            "GUICNT_d": {"type": "real", "description": "GUI roundtrip count."},
+            "MEMSUM_d": {"type": "real", "description": "Total extended memory consumed (bytes)."},
+            "USEDBYTES_d": {"type": "real", "description": "Total memory actually used (bytes)."},
+            "MAXBYTES_d": {"type": "real", "description": "Peak extended memory used by a single execution (bytes)."},
+            "MAXBYTESDI_d": {"type": "real", "description": "Peak extended memory for dialog steps (bytes)."},
+            "PRIVSUM_d": {"type": "real", "description": "Total private (heap) memory used (bytes). Non-zero = work processes went into PRIV mode."},
+            "PRIVCOUNT_d": {"type": "real", "description": "Number of executions that entered PRIV mode. >0 is a memory red flag."},
+            "RESTCOUNT_d": {"type": "real", "description": "Number of work process restarts caused by this object."},
+            "LUW_COUNT_d": {"type": "real", "description": "Number of LUWs (logical units of work)."},
+            "TMBYTESIN_d": {"type": "real", "description": "Bytes received over the network by this object."},
+            "TMBYTESOUT_d": {"type": "real", "description": "Bytes sent over the network by this object."},
+            "COUNTER_d": {"type": "real", "description": "Internal SWNC record counter."},
+            "BCOUNT_d": {"type": "real", "description": "SWNC internal bucket counter."},
+            "CPICCNT_d": {"type": "real", "description": "CPIC/RFC call count issued by this object."},
+            "DCOUNT_d": {"type": "real", "description": "SWNC internal dialog counter."},
+            "ECOUNT_d": {"type": "real", "description": "SWNC internal error counter."},
+            "SCOUNT_d": {"type": "real", "description": "SWNC internal step counter."},
+            "UCOUNT_d": {"type": "real", "description": "SWNC internal update counter."},
+            "QUECNT_d": {"type": "real", "description": "Number of executions that waited in the dispatcher queue."},
+            "SLI_CNT_d": {"type": "real", "description": "SWNC internal statistic-record counter."},
+            "VMC_CALL_COUNT_d": {"type": "real", "description": "VMC (Java VM container) call count."},
+            "VMC_CPU_TIME_d": {"type": "real", "description": "VMC CPU time (ms)."},
+            "VMC_ELAP_TIME_d": {"type": "real", "description": "VMC elapsed time (ms)."},
+            "Total_Steps_d": {"type": "real", "description": "Derived step count — populated ONLY on the ~1% derived-format rows. Prefer COUNT_d."},
+            "Total_Response_Time_d": {"type": "real", "description": "Derived total response time — derived-format rows only. Prefer RESPTI_d."},
+            "ST03_Avg_Resp_Time_d": {"type": "real", "description": "Derived average response time — derived-format rows only. Usually NULL here; compute RESPTI_d / COUNT_d instead."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
+            "ENTRY_ID_s is fixed-width and space-padded — ALWAYS trim: | extend tcode = trim(' ', substring(ENTRY_ID_s, 0, 40))",
+            "Background job name is in the same field: | extend job = trim(' ', substring(ENTRY_ID_s, 40, 32))",
+            "This table has TWO row formats. ~99% use raw SWNC columns (TASKTYPE_s, COUNT_d, RESPTI_d, CPUTI_d); ~1% use derived columns (Task_Type_s, Total_Steps_d, ST03_*). Prefer the raw columns and coalesce task type: | extend tt = coalesce(TASKTYPE_s, Task_Type_s)",
+            "Task_Type_Name_s is normally EMPTY on this table — decode TASKTYPE_s yourself or join to SapNetweaver_SWNC_CL on the hex code.",
+            "Averages must be computed: | summarize steps = sum(COUNT_d), resp_ms = sum(RESPTI_d), cpu_ms = sum(CPUTI_d) by tcode | extend avg_resp_ms = resp_ms / steps | top 20 by resp_ms desc",
+            "Top CPU consumers (the per-tcode CPU attribution question): | summarize cpu_ms = sum(CPUTI_d) by tcode | top 20 by cpu_ms desc",
+            "DB-bound objects: | extend db_ms = READSEQTI_d + READDIRTI_d + CHNGTI_d + DBP_TIME_d | where db_ms > 0.5 * RESPTI_d",
+            "Memory offenders: | where PRIVCOUNT_d > 0 or RESTCOUNT_d > 0 — these cause PRIV mode and WP restarts; correlate with MEMORY_NO_MORE_PAGING in SapNetweaver_ShortDumps_CL.",
+            "Rows repeat across collection cycles for the same interval — deduplicate before summing: | summarize arg_max(serverTimestamp_t, *) by ENTRY_ID_s, TASKTYPE_s, bin(serverTimestamp_t, 1h)",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 15C — SapNetweaver_SWNC_User_CL  (ST03N user profile)
+    # Schema source: LA workspace (verified against sapmon-laws-d44c1e41d7949a)
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_SWNC_User_CL": {
+        "table_name": "SapNetweaver_SWNC_User_CL",
+        "domain": "sap_application",
+        "description": (
+            "ST03N user profile — SWNC workload aggregated PER SAP USER per collection interval. "
+            "Answers 'which user or technical account is driving the load'. "
+            "Same metric columns as SapNetweaver_SWNC_Transaction_CL but keyed on USERNAME_s."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — SWNC user profile",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "workload_statistics",
+        "key_columns": ["SID_s", "USERNAME_s", "TASKTYPE_s", "COUNT_d", "RESPTI_d", "CPUTI_d"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "MANDT_s": {"type": "string", "description": "SAP client (MANDT) of the aggregated record."},
+            "USERNAME_s": {"type": "string", "description": "SAP user ID this row aggregates (e.g. 'AMS_USER', 'SAP_SYSTEM', a named dialog user). Primary key of this table."},
+            "ACCOUNT_s": {"type": "string", "description": "Account field — usually EMPTY on this table because USERNAME_s already carries the identity."},
+            "ENTRY_ID_s": {"type": "string", "description": "Composite entry key — usually EMPTY on this table. Use SapNetweaver_SWNC_Transaction_CL for per-object detail."},
+            "TASKTYPE_s": {"type": "string", "description": "Task type code, hex form (0x{02}=UPDATE, 0x{04}=BCKGRD, 0x{65}=HTTP, 0x{FE}=RFC, ...). Populated on raw-format rows."},
+            "Task_Type_s": {"type": "string", "description": "Task type code on derived-format rows only. Coalesce with TASKTYPE_s."},
+            "Task_Type_Name_s": {"type": "string", "description": "Decoded task type name — derived-format rows only; usually EMPTY."},
+            "COUNT_d": {"type": "real", "description": "Number of dialog steps executed by this user in the interval."},
+            "RESPTI_d": {"type": "real", "description": "Total response time for this user (ms)."},
+            "CPUTI_d": {"type": "real", "description": "Total CPU time consumed by this user (ms). Primary column for 'who is burning CPU'."},
+            "PROCTI_d": {"type": "real", "description": "Total ABAP processing time (ms)."},
+            "QUEUETI_d": {"type": "real", "description": "Total dispatcher queue wait time (ms)."},
+            "ROLLWAITTI_d": {"type": "real", "description": "Total roll-wait time (ms)."},
+            "CHNGTI_d": {"type": "real", "description": "Total DB change time (ms)."},
+            "CHNGCNT_d": {"type": "real", "description": "DB change operation count."},
+            "CHNGREC_d": {"type": "real", "description": "DB change record count."},
+            "READDIRTI_d": {"type": "real", "description": "Total DB direct read time (ms)."},
+            "READDIRCNT_d": {"type": "real", "description": "DB direct read count."},
+            "READDIRREC_d": {"type": "real", "description": "DB direct read record count."},
+            "READDIRBUF_d": {"type": "real", "description": "DB direct reads served from buffer."},
+            "READSEQTI_d": {"type": "real", "description": "Total DB sequential read time (ms)."},
+            "READSEQCNT_d": {"type": "real", "description": "DB sequential read count."},
+            "READSEQREC_d": {"type": "real", "description": "DB sequential read record count."},
+            "READSEQBUF_d": {"type": "real", "description": "DB sequential reads served from buffer."},
+            "DBP_TIME_d": {"type": "real", "description": "DB procedure call time (ms)."},
+            "DBP_COUNT_d": {"type": "real", "description": "DB procedure call count."},
+            "DSQLCNT_d": {"type": "real", "description": "Native SQL statement count."},
+            "GUITIME_d": {"type": "real", "description": "Total GUI time (ms) — real end-user latency for dialog users."},
+            "GUINETTIME_d": {"type": "real", "description": "Total GUI network time (ms). High = client network problem, not server."},
+            "GUICNT_d": {"type": "real", "description": "GUI roundtrip count."},
+            "MEMSUM_d": {"type": "real", "description": "Total extended memory consumed (bytes)."},
+            "USEDBYTES_d": {"type": "real", "description": "Total memory actually used (bytes)."},
+            "MAXBYTES_d": {"type": "real", "description": "Peak extended memory for a single step (bytes)."},
+            "MAXBYTESDI_d": {"type": "real", "description": "Peak extended memory for dialog steps (bytes)."},
+            "PRIVSUM_d": {"type": "real", "description": "Total private (heap) memory (bytes)."},
+            "PRIVCOUNT_d": {"type": "real", "description": "Executions that entered PRIV mode. >0 is a memory red flag for this user."},
+            "RESTCOUNT_d": {"type": "real", "description": "Work process restarts attributed to this user."},
+            "LUW_COUNT_d": {"type": "real", "description": "Number of LUWs."},
+            "TMBYTESIN_d": {"type": "real", "description": "Bytes received over the network."},
+            "TMBYTESOUT_d": {"type": "real", "description": "Bytes sent over the network."},
+            "COUNTER_d": {"type": "real", "description": "Internal SWNC record counter."},
+            "BCOUNT_d": {"type": "real", "description": "SWNC internal bucket counter."},
+            "CPICCNT_d": {"type": "real", "description": "CPIC/RFC call count issued by this user."},
+            "DCOUNT_d": {"type": "real", "description": "SWNC internal dialog counter."},
+            "ECOUNT_d": {"type": "real", "description": "SWNC internal error counter."},
+            "SCOUNT_d": {"type": "real", "description": "SWNC internal step counter."},
+            "UCOUNT_d": {"type": "real", "description": "SWNC internal update counter."},
+            "QUECNT_d": {"type": "real", "description": "Executions that waited in the dispatcher queue."},
+            "SLI_CNT_d": {"type": "real", "description": "SWNC internal statistic-record counter."},
+            "VALUE_0_d": {"type": "real", "description": "SWNC generic value slot 0 (layout depends on collector version)."},
+            "VALUE_1_d": {"type": "real", "description": "SWNC generic value slot 1."},
+            "VALUE_2_d": {"type": "real", "description": "SWNC generic value slot 2."},
+            "VALUE_3_d": {"type": "real", "description": "SWNC generic value slot 3."},
+            "VALUE_4_d": {"type": "real", "description": "SWNC generic value slot 4."},
+            "VALUE_5_d": {"type": "real", "description": "SWNC generic value slot 5."},
+            "VMC_CALL_COUNT_d": {"type": "real", "description": "VMC call count."},
+            "VMC_CPU_TIME_d": {"type": "real", "description": "VMC CPU time (ms)."},
+            "VMC_ELAP_TIME_d": {"type": "real", "description": "VMC elapsed time (ms)."},
+            "Total_Steps_d": {"type": "real", "description": "Derived step count — derived-format rows only. Prefer COUNT_d."},
+            "ST03_Avg_Resp_Time_d": {"type": "real", "description": "Derived average response time — derived-format rows only. Compute RESPTI_d / COUNT_d instead."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
+            "Top load by user: | summarize steps = sum(COUNT_d), resp_ms = sum(RESPTI_d), cpu_ms = sum(CPUTI_d) by USERNAME_s | top 20 by cpu_ms desc",
+            "Coalesce task type: | extend tt = coalesce(TASKTYPE_s, Task_Type_s). Task_Type_Name_s is usually EMPTY here.",
+            "Separate human from technical load: technical accounts are typically SAP_SYSTEM, AMS_USER, SAPSYS, DDIC, and RFC users.",
+            "Slow end-user experience: | where COUNT_d > 0 | extend avg_resp_ms = RESPTI_d / COUNT_d, avg_gui_ms = GUITIME_d / COUNT_d | where avg_resp_ms > 1000",
+            "High GUINETTIME_d relative to RESPTI_d means the bottleneck is the user's network/frontend, NOT the SAP server.",
+            "Memory offenders: | where PRIVCOUNT_d > 0 — cross-check the same user in SapNetweaver_ShortDumps_CL (E2E_USER_s).",
+            "ACCOUNT_s and ENTRY_ID_s are normally empty here — use SapNetweaver_SWNC_Transaction_CL to find WHICH object the user ran.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 15D — SapNetweaver_SWNC_RFC_Usage_CL  (ST03N RFC profile)
+    # Schema source: LA workspace (verified against sapmon-laws-d44c1e41d7949a)
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_SWNC_RFC_Usage_CL": {
+        "table_name": "SapNetweaver_SWNC_RFC_Usage_CL",
+        "domain": "sap_application",
+        "description": (
+            "ST03N RFC profile — SWNC workload aggregated PER RFC FUNCTION MODULE and "
+            "source/target destination pair. Answers 'which RFC call to which system is slow "
+            "or transferring the most data'. Use for interface and integration performance RCA."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — SWNC RFC profile",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "workload_statistics",
+        "key_columns": ["SID_s", "FUNC_NAME_s", "LOCAL_DEST_s", "REMOT_DEST_s", "CALL_TIME_d", "EXE_TIME_d"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "MANDT_s": {"type": "string", "description": "SAP client (MANDT) of the aggregated record."},
+            "FUNC_NAME_s": {"type": "string", "description": "RFC-enabled function module name (e.g. '/IWBEP/FM_MGW_GET_BCT'). Primary key of this table."},
+            "LOCAL_DEST_s": {"type": "string", "description": "Local instance issuing/serving the call, in <host>_<SID>_<nr> form (e.g. 'vchaa01l0c_CHA_02')."},
+            "REMOT_DEST_s": {"type": "string", "description": "Remote instance on the other side of the call. Equal to LOCAL_DEST_s means the call stayed on the same instance."},
+            "TARGET_s": {"type": "string", "description": "RFC destination name as defined in SM59. 'NONE' means a local/implicit destination."},
+            "PROG_NAME_s": {"type": "string", "description": "Calling ABAP program or class (e.g. '/IWFND/CL_COF_FACADE==========CP'). Identifies the caller."},
+            "USERID_s": {"type": "string", "description": "User under which the RFC executed."},
+            "USERNAME_s": {"type": "string", "description": "Alternate user name field."},
+            "ACCOUNT_s": {"type": "string", "description": "Account field for the aggregated record."},
+            "ENTRY_ID_s": {"type": "string", "description": "Composite SWNC entry key (fixed-width, space-padded). Trim before use."},
+            "TASKTYPE_s": {"type": "string", "description": "Task type code, hex form. 0x{FE}=RFC, 0x{F9}=Auto RFC."},
+            "Task_Type_s": {"type": "string", "description": "Task type code on derived-format rows only."},
+            "Task_Type_Name_s": {"type": "string", "description": "Decoded task type name — derived-format rows only; usually EMPTY."},
+            "CALL_TIME_d": {"type": "real", "description": "Total call time including network and remote execution (ms). This is what the CALLER experiences."},
+            "EXE_TIME_d": {"type": "real", "description": "Total execution time on the RECEIVING side (ms). CALL_TIME_d - EXE_TIME_d ≈ network/queueing overhead."},
+            "SEND_d": {"type": "real", "description": "Bytes sent for this function module."},
+            "RECEIVE_d": {"type": "real", "description": "Bytes received for this function module. Large values indicate oversized payloads."},
+            "COUNT_d": {"type": "real", "description": "Call count. Frequently NULL on this table — use CPICCNT_d or COUNTER_d as the call counter instead."},
+            "CPICCNT_d": {"type": "real", "description": "CPIC/RFC call count — the reliable call counter on this table."},
+            "COUNTER_d": {"type": "real", "description": "Internal SWNC record counter."},
+            "RESPTI_d": {"type": "real", "description": "Total response time (ms)."},
+            "CPUTI_d": {"type": "real", "description": "Total CPU time (ms)."},
+            "PROCTI_d": {"type": "real", "description": "Total ABAP processing time (ms)."},
+            "QUEUETI_d": {"type": "real", "description": "Total dispatcher queue wait time (ms)."},
+            "ROLLWAITTI_d": {"type": "real", "description": "Total roll-wait time (ms) — for RFC this is time waiting on the remote side."},
+            "CHNGTI_d": {"type": "real", "description": "Total DB change time (ms)."},
+            "CHNGCNT_d": {"type": "real", "description": "DB change operation count."},
+            "CHNGREC_d": {"type": "real", "description": "DB change record count."},
+            "READDIRTI_d": {"type": "real", "description": "Total DB direct read time (ms)."},
+            "READDIRCNT_d": {"type": "real", "description": "DB direct read count."},
+            "READDIRREC_d": {"type": "real", "description": "DB direct read record count."},
+            "READDIRBUF_d": {"type": "real", "description": "DB direct reads served from buffer."},
+            "READSEQTI_d": {"type": "real", "description": "Total DB sequential read time (ms)."},
+            "READSEQCNT_d": {"type": "real", "description": "DB sequential read count."},
+            "READSEQREC_d": {"type": "real", "description": "DB sequential read record count."},
+            "READSEQBUF_d": {"type": "real", "description": "DB sequential reads served from buffer."},
+            "DBP_TIME_d": {"type": "real", "description": "DB procedure call time (ms)."},
+            "DBP_COUNT_d": {"type": "real", "description": "DB procedure call count."},
+            "DSQLCNT_d": {"type": "real", "description": "Native SQL statement count."},
+            "GUITIME_d": {"type": "real", "description": "Total GUI time (ms)."},
+            "GUINETTIME_d": {"type": "real", "description": "Total GUI network time (ms)."},
+            "GUICNT_d": {"type": "real", "description": "GUI roundtrip count."},
+            "MEMSUM_d": {"type": "real", "description": "Total extended memory consumed (bytes)."},
+            "USEDBYTES_d": {"type": "real", "description": "Total memory actually used (bytes)."},
+            "MAXBYTES_d": {"type": "real", "description": "Peak extended memory for a single call (bytes)."},
+            "MAXBYTESDI_d": {"type": "real", "description": "Peak extended memory for dialog steps (bytes)."},
+            "PRIVSUM_d": {"type": "real", "description": "Total private (heap) memory (bytes)."},
+            "PRIVCOUNT_d": {"type": "real", "description": "Calls that entered PRIV mode."},
+            "RESTCOUNT_d": {"type": "real", "description": "Work process restarts attributed to this RFC."},
+            "LUW_COUNT_d": {"type": "real", "description": "Number of LUWs."},
+            "TMBYTESIN_d": {"type": "real", "description": "Bytes received at transport level."},
+            "TMBYTESOUT_d": {"type": "real", "description": "Bytes sent at transport level."},
+            "BCOUNT_d": {"type": "real", "description": "SWNC internal bucket counter."},
+            "DCOUNT_d": {"type": "real", "description": "SWNC internal dialog counter."},
+            "ECOUNT_d": {"type": "real", "description": "SWNC internal error counter."},
+            "SCOUNT_d": {"type": "real", "description": "SWNC internal step counter."},
+            "UCOUNT_d": {"type": "real", "description": "SWNC internal update counter."},
+            "QUECNT_d": {"type": "real", "description": "Calls that waited in the dispatcher queue."},
+            "SLI_CNT_d": {"type": "real", "description": "SWNC internal statistic-record counter."},
+            "VALUE_0_d": {"type": "real", "description": "SWNC generic value slot 0."},
+            "VALUE_1_d": {"type": "real", "description": "SWNC generic value slot 1."},
+            "VALUE_2_d": {"type": "real", "description": "SWNC generic value slot 2."},
+            "VALUE_3_d": {"type": "real", "description": "SWNC generic value slot 3."},
+            "VALUE_4_d": {"type": "real", "description": "SWNC generic value slot 4."},
+            "VALUE_5_d": {"type": "real", "description": "SWNC generic value slot 5."},
+            "VMC_CALL_COUNT_d": {"type": "real", "description": "VMC call count."},
+            "VMC_CPU_TIME_d": {"type": "real", "description": "VMC CPU time (ms)."},
+            "VMC_ELAP_TIME_d": {"type": "real", "description": "VMC elapsed time (ms)."},
+            "Total_Steps_d": {"type": "real", "description": "Derived step count — derived-format rows only."},
+            "ST03_Avg_Resp_Time_d": {"type": "real", "description": "Derived average response time — derived-format rows only."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
+            "COUNT_d is frequently NULL here — use CPICCNT_d as the call count, or avoid per-call averages entirely.",
+            "Slowest RFCs: | summarize call_ms = sum(CALL_TIME_d), exe_ms = sum(EXE_TIME_d) by FUNC_NAME_s, TARGET_s | top 20 by call_ms desc",
+            "Network vs remote-execution split: | extend overhead_ms = CALL_TIME_d - EXE_TIME_d — a large overhead means the network or the remote dispatcher queue is the problem, not the remote ABAP code.",
+            "Payload problems: | summarize sent = sum(SEND_d), received = sum(RECEIVE_d) by FUNC_NAME_s | top 20 by received desc",
+            "Cross-system calls only: | where LOCAL_DEST_s != REMOT_DEST_s",
+            "Find the caller with PROG_NAME_s; find the SM59 destination with TARGET_s ('NONE' = local call).",
+            "Pair with SapNetweaver_TransactionalRfc_CL (SM58 failures) and SapNetweaver_OutboundQueues_CL for a complete interface RCA.",
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Table 15E — SapNetweaver_SWNC_Memory_CL  (ST03N memory profile)
+    # Schema source: LA workspace (verified against sapmon-laws-d44c1e41d7949a)
+    # ──────────────────────────────────────────────────────────────────────────
+    "SapNetweaver_SWNC_Memory_CL": {
+        "table_name": "SapNetweaver_SWNC_Memory_CL",
+        "domain": "sap_application",
+        "description": (
+            "ST03N memory profile — SWNC extended/heap memory consumption aggregated PER OBJECT "
+            "(transaction, report, or 'RFC') per collection interval. "
+            "Use to find which ABAP object is exhausting extended memory, forcing work processes "
+            "into PRIV mode, or causing MEMORY_NO_MORE_PAGING / SYSTEM_NO_ROLL short dumps."
+        ),
+        "data_source": "SAP Monitor NetWeaver provider — SWNC memory profile",
+        "time_column": "serverTimestamp_t",
+        "sid_column": "SID_s",
+        "analysis_type": "workload_statistics",
+        "key_columns": ["SID_s", "ENTRY_ID_s", "TASKTYPE_s", "MAXBYTES_d", "MEMSUM_d", "PRIVCOUNT_d"],
+        "columns": {
+            "SID_s": {"type": "string", "description": "SAP System ID. ALWAYS filter."},
+            "sapsid_s": {"type": "string", "description": "Alternate SAP SID column."},
+            "client_s": {"type": "string", "description": "SAP client number."},
+            "MANDT_s": {"type": "string", "description": "SAP client (MANDT) of the aggregated record."},
+            "ENTRY_ID_s": {
+                "type": "string",
+                "description": (
+                    "Fixed-width composite key: chars 0-39 = transaction/report/class "
+                    "(e.g. 'RFC', 'CL_ABAP_PARALLEL==============CP'), chars 40-71 = job name, "
+                    "last char = record type. ALWAYS trim: trim(' ', substring(ENTRY_ID_s, 0, 40))."
+                ),
+            },
+            "ACCOUNT_s": {"type": "string", "description": "SAP user account that executed the object (e.g. 'SAP_SYSTEM')."},
+            "TASKTYPE_s": {"type": "string", "description": "Task type code, hex form (0x{FE}=RFC, 0x{04}=BCKGRD, 0x{65}=HTTP, ...)."},
+            "Task_Type_s": {"type": "string", "description": "Task type code on derived-format rows only."},
+            "Task_Type_Name_s": {"type": "string", "description": "Decoded task type name — derived-format rows only; usually EMPTY."},
+            "MEMSUM_d": {"type": "real", "description": "Total extended memory (EM) consumed across all executions, in BYTES. Main volume metric."},
+            "USEDBYTES_d": {"type": "real", "description": "Total memory actually used, in BYTES. Close to MEMSUM_d under normal conditions."},
+            "MAXBYTES_d": {"type": "real", "description": "PEAK extended memory used by a single execution, in BYTES. Compare against the ztta/roll_extension profile parameter — at the limit the work process goes PRIV."},
+            "MAXBYTESDI_d": {"type": "real", "description": "Peak extended memory for dialog steps, in BYTES. Compare against ztta/roll_extension_dia."},
+            "PRIVSUM_d": {"type": "real", "description": "Total private (heap) memory used, in BYTES. Non-zero means EM was exhausted and the WP fell back to heap."},
+            "PRIVCOUNT_d": {"type": "real", "description": "Number of executions that entered PRIV mode. >0 is the direct precursor to memory short dumps."},
+            "RESTCOUNT_d": {"type": "real", "description": "Number of work process restarts caused by this object after PRIV mode."},
+            "COUNTER_d": {"type": "real", "description": "Number of aggregated executions behind this row. Use as the denominator for averages."},
+            "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
+            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
+            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+        },
+        "kql_hints": [
+            "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
+            "ENTRY_ID_s is space-padded — ALWAYS trim: | extend obj = trim(' ', substring(ENTRY_ID_s, 0, 40))",
+            "All memory columns are in BYTES. Convert for reporting: | extend peak_mb = MAXBYTES_d / 1024 / 1024",
+            "Top memory consumers: | summarize peak_bytes = max(MAXBYTES_d), total_bytes = sum(MEMSUM_d) by obj | top 20 by peak_bytes desc",
+            "PRIV-mode offenders (highest priority): | where PRIVCOUNT_d > 0 or RESTCOUNT_d > 0 | summarize sum(PRIVCOUNT_d), sum(RESTCOUNT_d) by obj",
+            "This table is the direct RCA answer for MEMORY_NO_MORE_PAGING / SYSTEM_NO_ROLL / TSV_TNEW_PAGE_ALLOC_FAILED dumps — match the object here against Program_s in SapNetweaver_ShortDumps_CL for the same window.",
+            "Correlate MAXBYTES_d against OS memory: Prometheus_OSExporter_CL node_memory_MemAvailable_bytes and node_memory_SwapFree_bytes on the same host.",
+            "Rows repeat across collection cycles — deduplicate before summing: | summarize arg_max(serverTimestamp_t, *) by ENTRY_ID_s, TASKTYPE_s, bin(serverTimestamp_t, 1h)",
         ],
     },
 

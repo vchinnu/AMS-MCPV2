@@ -17,8 +17,9 @@ HOW TO ADD A NEW DOMAIN
 ───────────────────────
 1. Create MCP/schemas/<domain_name>.py with a SCHEMAS dict.
 2. Import and merge it here (one line each in the imports and SCHEMA_REGISTRY).
-3. Add an analysis_type handler in MCP/tools/deeper_rca_analysis.py.
-4. Add the new analysis_type to CLASSIFIED_ANALYSIS_TYPES in this file.
+3. Create MCP/analyzers/<domain_name>.py with an @register("<analysis_type>") function.
+   The analyzer registry is the single source of truth for which analysis_types are
+   classified — nothing needs to be listed in this file.
 """
 from __future__ import annotations
 
@@ -36,30 +37,6 @@ SCHEMA_REGISTRY: dict[str, dict] = {
     **_HANA_DB,
     **_COMMON,
 }
-
-# ── Classified analysis types ──────────────────────────────────────────────────
-# Add a new entry here ONLY when a corresponding handler exists in
-# tools/deeper_rca_analysis.py for that analysis_type.
-# execute_query automatically routes results through deeper_rca_analysis
-# for any analysis_type present in this set.
-CLASSIFIED_ANALYSIS_TYPES: frozenset[str] = frozenset({
-    "short_dumps",   # SapNetweaver_ShortDumps_CL        — ST22 ABAP short dumps
-    "system_logs",   # SapNetweaver_SysLogs_CL            — SM21 system log entries
-    "batch_jobs",    # SapNetweaver_BatchJobs_CL          — SM37 batch job monitor
-    "ha_cluster",    # Prometheus_HaClusterExporter_CL   — Pacemaker / Corosync HA signals
-    "os_metrics",    # Prometheus_OSExporter_CL           — OS node exporter metrics
-    "availability",              # SapNetweaver_GetSystemInstanceList_CL — SAP instance up/down status
-    "SAP_system_availability",   # alias — matches schema definition for GetSystemInstanceList_CL
-    "SAP_Process_Availability",  # SapNetweaver_GetProcessList_CL — SAP process-level health
-    "workprocess_status",        # SapNetweaver_ABAPGetWPTable_CL — SM50/SM66 work process status
-    "Failed_updates",            # SapNetweaver_FailedUpdates_CL  — SM13 failed V1/V2/V3 updates
-    "system_performance",        # SapNetweaver_SMON_CL           — SMON performance snapshots
-    "workload_statistics",       # SapNetweaver_SWNC_CL           — ST03N workload statistics
-    "transactional_rfc",         # SapNetweaver_TransactionalRfc_CL — SM58 tRFC errors
-    "queue_monitoring",          # SapNetweaver_*Queues_CL         — SMQ1/SMQ2/Dispatcher queues
-    "transport_management",      # SapNetweaver_STMS_*_CL          — STMS transport requests/objects
-    # "hana_db",     # HANA DB tables                    — add when handler is implemented
-})
 
 # ── Convenience accessors (unchanged — all callers continue to work) ───────────
 

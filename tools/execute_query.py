@@ -6,10 +6,9 @@ Security model:
   - Automatically appends a row limit if the query has none
   - Passes the validated query to the Azure Log Analytics client
 
-When analysis_type is provided and matches a type in CLASSIFIED_ANALYSIS_TYPES
-(see schema_registry.py), the raw rows are automatically classified by
-deeper_rca_analysis before being returned — the agent only sees structured
-findings, never the raw 1000-row result.
+When analysis_type is provided and matches a registered analyzer (see analyzers/),
+the raw rows are automatically classified by deeper_rca_analysis before being
+returned — the agent only sees structured findings, never the raw 1000-row result.
 """
 from __future__ import annotations
 
@@ -63,10 +62,10 @@ def execute_query(
     The agent generates the KQL (after calling get_schema to learn the table structure).
     This tool validates the query is read-only, enforces a row cap, then runs it.
 
-    When analysis_type matches a type in CLASSIFIED_ANALYSIS_TYPES (see schema_registry.py),
-    the raw rows are automatically classified by the SAP domain knowledge engine before
-    being returned. The agent receives structured findings instead of raw rows — this
-    avoids the agent consuming tokens on up to 1000 unclassified rows.
+    When analysis_type matches a registered analyzer (see analyzers/), the raw rows are
+    automatically classified by the SAP domain knowledge engine before being returned.
+    The agent receives structured findings instead of raw rows — this avoids the agent
+    consuming tokens on up to 1000 unclassified rows.
 
     If analysis_type is blank or does not match a known type, raw query results are
     returned as-is so the agent can inspect them directly.
@@ -87,8 +86,8 @@ def execute_query(
                         ARM resource ID or workspace GUID.
                         Leave blank to use AZURE_LOG_ANALYTICS_WORKSPACE_ID from .env.
         analysis_type:  Optional SAP domain classification type.
-                        Any type listed in CLASSIFIED_ANALYSIS_TYPES (schema_registry.py)
-                        triggers automatic classification before returning to the agent.
+                        Any type with a registered analyzer (see analyzers/) triggers
+                        automatic classification before returning to the agent.
                         Leave blank for raw results (e.g. tables with no classification handler).
         context:        Optional free-text context string passed through to the classifier
                         (e.g. 'SID=PRD, investigating dump spike after 14:00 UTC').
@@ -99,7 +98,7 @@ def execute_query(
         3. (neither provided)     → defaults to last 24 hours
 
     Returns:
-        When analysis_type matches a type in CLASSIFIED_ANALYSIS_TYPES:
+        When analysis_type matches a registered analyzer:
           → Structured classification output from deeper_rca_analysis
             (category_breakdown, error_investigation, investigation_hints, filter_context)
 

@@ -90,8 +90,8 @@ def execute_query(
         workspace_id:   Optional workspace override (ARM resource ID or GUID).
                         Leave blank to use the configured default workspace.
         analysis_type:  SAP domain classification type — triggers automatic classification.
-                        Valid values are listed in CLASSIFIED_ANALYSIS_TYPES (schema_registry.py)
-                        and shown in the server instructions above.
+                        Valid values are the registered analyzer types listed in the
+                        server instructions above.
                         Leave blank for raw results (OS metrics, HA cluster, other tables).
         context:        Optional context string passed to the classifier
                         (e.g. 'SID=PRD, investigating dump spike after 14:00 UTC').
@@ -109,9 +109,8 @@ def deeper_rca_analysis(results: dict, analysis_type: str, context: str = "") ->
 
     Args:
         results:       Dict returned by execute_query (must contain 'rows').
-        analysis_type: SAP domain classification type. Valid values are listed in
-                       CLASSIFIED_ANALYSIS_TYPES (schema_registry.py) and shown in
-                       the server instructions.
+        analysis_type: SAP domain classification type. Valid values are the registered
+                       analyzer types shown in the server instructions.
         context:       Optional context string (SID, time range, alert description).
     """
     return _deeper_rca_analysis(results, analysis_type, context)
