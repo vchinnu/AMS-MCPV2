@@ -27,7 +27,6 @@ SCHEMAS: dict[str, dict] = {
         "analysis_type": None,
         "columns": {
             "TimeGenerated": {"type": "datetime", "description": "UTC ingest timestamp. Use for time filters."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
             "sid_s": {
                 "type": "string",
                 "description": (

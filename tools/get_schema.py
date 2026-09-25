@@ -112,6 +112,10 @@ def get_schema(table_names: list[str] | None = None) -> dict:
                 "Column names are CASE-SENSITIVE. Use exact names from this schema.",
                 "Use sid_column field for SID filter (SID_s or sapsid_s varies by table).",
                 "Use time_column field for time filter (varies: serverTimestamp_t, TimeGenerated, timestamp_t).",
+                "A table that has never received data in a workspace exposes only the Log Analytics "
+                "standard columns. Referencing any schema column then raises SemanticError instead of "
+                "returning zero rows — treat that error as 'not collected here', not as a bad query. "
+                "Confirm with: <Table> | getschema.",
             ],
             "hint": (
                 "Call get_schema(['TableName']) to get full column list, key_columns, "
@@ -127,6 +131,10 @@ def get_schema(table_names: list[str] | None = None) -> dict:
         "Column names are CASE-SENSITIVE. Use exact names from this schema.",
         "Use sid_column for SID filter (SID_s or sapsid_s varies by table).",
         "Use time_column for time filter (varies: serverTimestamp_t, TimeGenerated, timestamp_t).",
+        "A table that has never received data in a workspace exposes only the Log Analytics "
+        "standard columns. Referencing any schema column then raises SemanticError instead of "
+        "returning zero rows — treat that error as 'not collected here', not as a bad query. "
+        "Confirm with: <Table> | getschema.",
     ]
 
     # Build a reverse map: analysis_type alias → [actual table names]

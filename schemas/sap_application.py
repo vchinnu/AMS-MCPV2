@@ -56,10 +56,10 @@ SCHEMAS: dict[str, dict] = {
             "Application_Componen_s": {"type": "string", "description": "SAP functional area of the error (FI, MM, SD). Column name is intentionally truncated — no trailing 't'."},
             "Component_s": {"type": "string", "description": "SAP technical component in the official hierarchy (e.g. LO-VCH, BC-CST-EQ). Used when raising OSS notes."},
             "Development_Class_s": {"type": "string", "description": "ABAP package / development class (e.g. SENQ, VCH_HL_CORE). Indicates code ownership and transport layer."},
-            "E2E_DATE_s": {"type": "string", "description": "Dump date in the SAP system, string YYYYMMDD. Pair with E2E_TIME_s. Not usable in KQL time filters."},
+            "E2E_DATE_s": {"type": "string", "description": "Dump date in SAP LOCAL time, format 'YYYY-MM-DD' (with dashes). Pair with E2E_TIME_s."},
             "E2E_HOST_s": {"type": "string", "description": "Application server where the dump occurred."},
             "E2E_SEVERITY_s": {"type": "string", "description": "Severity: '1' = Very High, '2' = High."},
-            "E2E_TIME_s": {"type": "string", "description": "Dump time in the SAP system, string HHMMSS. Not usable in KQL time filters."},
+            "E2E_TIME_s": {"type": "string", "description": "Dump time in SAP LOCAL time, format 'HH:MM:SS' (with colons). Combine as todatetime(strcat(E2E_DATE_s,' ',E2E_TIME_s)); prefer serverTimestamp_t, which is the same instant already in UTC."},
             "E2E_USER_s": {"type": "string", "description": "SAP user active when the dump occurred; for background jobs this is the job step user."},
             "Error_Short_Text_s": {"type": "string", "description": "Brief error description as shown in ST22. Key field for initial diagnosis."},
             "Exception_s": {"type": "string", "description": "ABAP exception class raised (e.g. CX_SY_NO_HANDLER). Empty for classic runtime errors like TIME_OUT."},
@@ -72,8 +72,6 @@ SCHEMAS: dict[str, dict] = {
             "instanceNr_s": {"type": "string", "description": "SAP instance number (e.g. '00'). Cross-reference with availability tables."},
             "client_s": {"type": "string", "description": "SAP client number (e.g. '100')."},
             "sapsid_s": {"type": "string", "description": "Alternate SAP SID column (same value as SID_s)."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -117,15 +115,19 @@ SCHEMAS: dict[str, dict] = {
                 "type": "string",
                 "description": "Logical SAP system client where the background job is defined/executed.",
             },
+            "CALENDARID_s": {
+                "type": "string",
+                "description": "SAP factory calendar used for date-based scheduling. Populated on only ~1% of jobs; empty means no calendar restriction.",
+            },
             "ENDDATE_s": {
                 "type": "string",
-                "description": "Actual date when the job execution finished (format YYYYMMDD).",
+                "description": "Actual date when the job execution finished (format 'YYYY-MM-DD', with dashes).",
             },
             "ENDTIME_s": {
                 "type": "string",
                 "description": (
-                    "Actual time when job execution finished (format HHMMSS). "
-                    "Job duration = ENDTIME_s minus STRTTIME_s."
+                    "Actual time when job execution finished (format 'HH:MM:SS', with colons). "
+                    "Job duration = datetime_diff('second', todatetime(strcat(ENDDATE_s,' ',ENDTIME_s)), todatetime(strcat(STRTDATE_s,' ',STRTTIME_s)))."
                 ),
             },
             "EVENTID_s": {
@@ -158,7 +160,7 @@ SCHEMAS: dict[str, dict] = {
             },
             "LASTCHDATE_s": {
                 "type": "string",
-                "description": "Date when the job definition was last changed (YYYYMMDD).",
+                "description": "Date when the job definition was last changed (format 'YYYY-MM-DD', with dashes).",
             },
             "LASTCHNAME_s": {
                 "type": "string",
@@ -166,15 +168,15 @@ SCHEMAS: dict[str, dict] = {
             },
             "LASTCHTIME_s": {
                 "type": "string",
-                "description": "Time when the job definition was last changed (HHMMSS).",
+                "description": "Time when the job definition was last changed (format 'HH:MM:SS', with colons).",
             },
             "LASTSTRTDT_s": {
                 "type": "string",
-                "description": "Start date of the previous execution of this job (YYYYMMDD).",
+                "description": "Start date of the previous execution of this job (format 'YYYY-MM-DD', with dashes).",
             },
             "LASTSTRTTM_s": {
                 "type": "string",
-                "description": "Start time of the previous execution of this job (HHMMSS).",
+                "description": "Start time of the previous execution of this job (format 'HH:MM:SS', with colons).",
             },
             "PERIODIC_s": {
                 "type": "string",
@@ -182,11 +184,11 @@ SCHEMAS: dict[str, dict] = {
             },
             "RELDATE_s": {
                 "type": "string",
-                "description": "Date when the job was released (made ready for execution, YYYYMMDD).",
+                "description": "Date when the job was released (made ready for execution), format 'YYYY-MM-DD', with dashes.",
             },
             "RELTIME_s": {
                 "type": "string",
-                "description": "Time when the job was released (HHMMSS).",
+                "description": "Time when the job was released (format 'HH:MM:SS', with colons).",
             },
             "RELUNAME_s": {
                 "type": "string",
@@ -194,22 +196,22 @@ SCHEMAS: dict[str, dict] = {
             },
             "SDLDATE_s": {
                 "type": "string",
-                "description": "Date when the job was scheduled/defined (YYYYMMDD).",
+                "description": "Date when the job was scheduled/defined (format 'YYYY-MM-DD', with dashes).",
             },
             "SDLSTRTDT_s": {
                 "type": "string",
-                "description": "Planned start date of the job (YYYYMMDD).",
+                "description": "Planned start date of the job (format 'YYYY-MM-DD', with dashes).",
             },
             "SDLSTRTTM_s": {
                 "type": "string",
                 "description": (
-                    "Planned start time of the job (HHMMSS). "
+                    "Planned start time of the job (format 'HH:MM:SS', with colons). "
                     "Start delay = STRTTIME_s minus SDLSTRTTM_s."
                 ),
             },
             "SDLTIME_s": {
                 "type": "string",
-                "description": "Time when the job was scheduled (HHMMSS).",
+                "description": "Time when the job was scheduled (format 'HH:MM:SS', with colons).",
             },
             "SDLUNAME_s": {
                 "type": "string",
@@ -231,12 +233,12 @@ SCHEMAS: dict[str, dict] = {
             },
             "STRTDATE_s": {
                 "type": "string",
-                "description": "Actual start date of job execution (YYYYMMDD).",
+                "description": "Actual start date of job execution (format 'YYYY-MM-DD', with dashes).",
             },
             "STRTTIME_s": {
                 "type": "string",
                 "description": (
-                    "Actual start time of job execution (HHMMSS). "
+                    "Actual start time of job execution (format 'HH:MM:SS', with colons). "
                     "Start delay = STRTTIME_s minus SDLSTRTTM_s."
                 ),
             },
@@ -306,7 +308,7 @@ SCHEMAS: dict[str, dict] = {
             "CASE SENSITIVITY: KQL column names are case-sensitive. In THIS table use UPPERCASE columns: JOBNAME_s, STATUS_s, JOBCLASS_s, REAXSERVER_s, SDLUNAME_s, RELUNAME_s. Do NOT use lowercase (jobname_s is WRONG for this table — that belongs to SapNetweaver_BatchJobLog_CL).",
             "For failure analysis, filter STATUS_s == 'A' (Cancelled) — primary failure indicator.",
             "Summarize by JOBNAME_s and REAXSERVER_s — run as a single summarize count() by JOBNAME_s, REAXSERVER_s to find which jobs fail most and whether failures are concentrated on one app server.",
-            "Compute start delay: STRTTIME_s minus SDLSTRTTM_s (both HHMMSS strings — convert before arithmetic). A large delay indicates resource crunch in batch/background work processes.",
+            "Compute start delay: datetime_diff('second', todatetime(strcat(STRTDATE_s,' ',STRTTIME_s)), todatetime(strcat(SDLSTRTDT_s,' ',SDLSTRTTM_s))). These are 'YYYY-MM-DD'/'HH:MM:SS' strings, so todatetime() parses them directly. A large delay indicates resource crunch in batch/background work processes.",
             "Compute duration: ENDTIME_s minus STRTTIME_s. Longer duration than previous runs indicates investigation needed — OS resource pressure or large data volume in the job.",
             "Filter by SDLUNAME_s or RELUNAME_s to find jobs belonging to a specific user.",
             "JOBCLASS_s='A' jobs are high-priority — their failure has most business impact.",
@@ -330,7 +332,7 @@ SCHEMAS: dict[str, dict] = {
             "Filter on E2E_SEVERITY_s '1' or '2' for critical events."
         ),
         "data_source": "SAP RFC /SDF/GET_SYS_LOG",
-        "time_column": "TimeGenerated",
+        "time_column": "serverTimestamp_t",
         "sid_column": "SID_s",
         "key_columns": [
             "E2E_SEVERITY_s",
@@ -367,7 +369,7 @@ SCHEMAS: dict[str, dict] = {
             },
             "E2E_DATE_s": {
                 "type": "string",
-                "description": "Date when the log/event occurred in the SAP system (format YYYYMMDD).",
+                "description": "Date when the log/event occurred, SAP LOCAL time, format 'YYYY-MM-DD' (with dashes).",
             },
             "E2E_HOST_s": {
                 "type": "string",
@@ -383,7 +385,7 @@ SCHEMAS: dict[str, dict] = {
             },
             "E2E_TIME_s": {
                 "type": "string",
-                "description": "Time when log/event occurred in SAP system (format HHMMSS). Not a datetime — do not use for KQL time filters.",
+                "description": "Time the log/event occurred, SAP LOCAL time, format 'HH:MM:SS' (with colons). Combine as todatetime(strcat(E2E_DATE_s,' ',E2E_TIME_s)); prefer serverTimestamp_t, which is the same instant already in UTC.",
             },
             "E2E_USER_s": {
                 "type": "string",
@@ -432,20 +434,20 @@ SCHEMAS: dict[str, dict] = {
             },
             "serverTimestamp_t": {
                 "type": "datetime",
-                "description": "SAP AMS collection timestamp (UTC). Alternate time reference.",
+                "description": "SAP event time in UTC — the moment the log entry was written in SAP. THE time column for this table. Verified: equals E2E_DATE_s + E2E_TIME_s converted from SAP local time to UTC.",
             },
             "TimeGenerated": {
                 "type": "datetime",
                 "description": (
-                    "Log Analytics data ingestion timestamp (UTC). "
-                    "USE THIS for KQL time filters: | where TimeGenerated > ago(4h). "
-                    "Note: E2E_DATE_s + E2E_TIME_s hold the actual SAP system event time."
+                    "Log Analytics INGESTION time, not the event time — it trails serverTimestamp_t "
+                    "by seconds to minutes. Do NOT filter or trend on this; use serverTimestamp_t. "
+                    "Useful only to detect collection gaps."
                 ),
             },
         },
         "kql_hints": [
             "ALWAYS filter by the sid_column shown in this schema (SID_s for this table): | where SID_s == '<sid>'",
-            "Use the time_column shown in this schema (TimeGenerated for this table): | where TimeGenerated > ago(4h)",
+            "Use serverTimestamp_t (the SAP event time) for time filters: | where serverTimestamp_t > ago(4h). TimeGenerated is ingestion time and trails the event.",
             "E2E_DATE_s + E2E_TIME_s are the actual SAP event times — use for display/correlation, not for KQL time filters.",
             "Filter E2E_SEVERITY_s in ('1', '2') to focus on critical and high priority entries only.",
             "Summarize by Msg_area_Msd_Id_s, E2E_HOST_s, and Description_s — run as a single summarize count() by these three columns to identify dominant message types, the most affected app server, and the most repeated error messages in one query.",
@@ -455,7 +457,7 @@ SCHEMAS: dict[str, dict] = {
             "EMF = 'Logon of Job Step User Failed' — indicates batch user authorization or lock issue.",
             "D01 = 'Transaction cancelled' — often paired with a dump; note the user and client.",
             "Q0I = OS call recv failed — indicates network disconnect or OS-level issue.",
-            "bin(TimeGenerated, 5m) timeline reveals when errors started spiking.",
+            "bin(serverTimestamp_t, 5m) timeline reveals when errors started spiking.",
         ],
     },
 
@@ -544,7 +546,7 @@ SCHEMAS: dict[str, dict] = {
             "is up after an availability alarm."
         ),
         "data_source": "SAP SAPControl API (GetProcessList)",
-        "time_column": "timestamp_t",
+        "time_column": "serverTimestamp_t",
         "sid_column": "SID_s",
         "analysis_type": "SAP_Process_Availability",
         "key_columns": ["SID_s", "hostname_s", "name_s", "dispstatus_s", "textstatus_s"],
@@ -584,10 +586,6 @@ SCHEMAS: dict[str, dict] = {
             "serverTimestamp_t": {
                 "type": "datetime",
                 "description": "SAP AMS collection timestamp (UTC). Alternate time reference.",
-            },
-            "timestamp_t": {
-                "type": "datetime",
-                "description": "Collection timestamp in UTC — use for KQL time filters.",
             },
         },
         "kql_hints": [
@@ -826,7 +824,7 @@ SCHEMAS: dict[str, dict] = {
             }
         ],
         "data_source": "SAP SNAP table (full dump sections)",
-        "time_column": "TimeGenerated",
+        "time_column": "serverTimestamp_t",
         "sid_column": "sapsid_s",
         "key_columns": [
             "correlation_id_g",
@@ -840,8 +838,8 @@ SCHEMAS: dict[str, dict] = {
             "TimeGenerated": {
                 "type": "datetime",
                 "description": (
-                    "Ingestion timestamp in Log Analytics (UTC). "
-                    "Use for KQL time range filters: | where TimeGenerated > ago(4h)"
+                    "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on "
+                    "this — use serverTimestamp_t. Useful only to detect collection gaps."
                 ),
             },
             "correlation_id_g": {
@@ -886,7 +884,7 @@ SCHEMAS: dict[str, dict] = {
             },
             "E2E_DATE_s": {
                 "type": "string",
-                "description": "Date when the dump occurred in SAP (YYYYMMDD format).",
+                "description": "Date when the dump occurred, SAP LOCAL time, format 'YYYY-MM-DD' (with dashes).",
             },
             "E2E_TIME_s": {
                 "type": "string",
@@ -926,14 +924,10 @@ SCHEMAS: dict[str, dict] = {
                 "type": "datetime",
                 "description": "Timestamp of the dump event from the SAP server (UTC).",
             },
-            "timestamp_t": {
-                "type": "datetime",
-                "description": "Timestamp when this record was collected/ingested by the monitoring provider (UTC).",
-            },
         },
         "kql_hints": [
             "ALWAYS filter by the sid_column shown in this schema (sapsid_s for this table): | where sapsid_s == '<sid>'",
-            "Use the time_column shown in this schema (TimeGenerated for this table): | where TimeGenerated > ago(4h)",
+            "Use serverTimestamp_t (the SAP event time) for time filters: | where serverTimestamp_t > ago(4h). TimeGenerated is ingestion time and trails the event.",
             "Each dump has multiple rows (one per section) — use correlation_id_g to group all sections of one dump.",
             "Filter section_s == 'IDENTITY' for dump identity (Runtime_Error, Program, Transaction).",
             "Filter section_s == 'CALL_STACK' for the ABAP call stack trace.",
@@ -964,7 +958,7 @@ SCHEMAS: dict[str, dict] = {
             "identifying the failing ABAP program."
         ),
         "data_source": "SAP RFC (BAPI_XBP_JOB_SELECT + JOB_READ + JOBLOG_READ)",
-        "time_column": "TimeGenerated",
+        "time_column": "serverTimestamp_t",
         "sid_column": "SID_s",
         "key_columns": [
             "jobname_s",
@@ -979,8 +973,8 @@ SCHEMAS: dict[str, dict] = {
             "TimeGenerated": {
                 "type": "datetime",
                 "description": (
-                    "Ingestion timestamp in Log Analytics (UTC). "
-                    "Use for KQL time range filters: | where TimeGenerated > ago(4h)"
+                    "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on "
+                    "this — use serverTimestamp_t. Useful only to detect collection gaps."
                 ),
             },
             "PROVIDER_INSTANCE_s": {
@@ -994,10 +988,6 @@ SCHEMAS: dict[str, dict] = {
             "SID_s": {
                 "type": "string",
                 "description": "SAP System ID (e.g. CHA). ALWAYS filter: | where SID_s == '<sid>'",
-            },
-            "Time_Generated_t": {
-                "type": "datetime",
-                "description": "Provider-side timestamp when this record was generated (UTC).",
             },
             "client_s": {
                 "type": "string",
@@ -1140,10 +1130,6 @@ SCHEMAS: dict[str, dict] = {
                     "Use for time-based correlation with other SAP tables."
                 ),
             },
-            "timestamp_t": {
-                "type": "datetime",
-                "description": "Collection timestamp when this record was ingested (UTC).",
-            },
             "total_steps_d": {
                 "type": "real",
                 "description": (
@@ -1158,7 +1144,7 @@ SCHEMAS: dict[str, dict] = {
         },
         "kql_hints": [
             "ALWAYS filter by the sid_column shown in this schema (SID_s for this table): | where SID_s == '<sid>'",
-            "Use the time_column shown in this schema (TimeGenerated for this table): | where TimeGenerated > ago(4h)",
+            "Use serverTimestamp_t (the SAP event time) for time filters: | where serverTimestamp_t > ago(4h). TimeGenerated is ingestion time and trails the event.",
             "CASE SENSITIVITY: KQL column names are case-sensitive. In THIS table use lowercase columns: jobname_s, jobcount_s, runtime_error_s, failed_step_program_s, failed_step_user_s, job_status_s. Do NOT use UPPERCASE (JOBNAME_s is WRONG for this table — that belongs to SapNetweaver_BatchJobs_CL).",
             "All rows have job_status_s == 'A' (aborted) — no need to filter on status.",
             "Summarize by jobname_s, runtime_error_s to find which jobs fail with which error types.",
@@ -1169,7 +1155,7 @@ SCHEMAS: dict[str, dict] = {
             "error_message_s contains application-specific diagnostic text beyond the runtime error.",
             "Use is_periodic_s == 'X' to focus on recurring jobs that keep failing.",
             "Correlate hostname_s + time window with OS metrics and system logs for infrastructure root cause.",
-            "bin(TimeGenerated, 1h) to detect patterns of job failures across time.",
+            "bin(serverTimestamp_t, 1h) to detect patterns of job failures across time.",
         ],
     },
 
@@ -1235,9 +1221,7 @@ SCHEMAS: dict[str, dict] = {
             "ST02_FLAG_s": {"type": "string", "description": "Flag indicating if ST02 buffer data is included."},
             "GUID_s": {"type": "string", "description": "Unique identifier for this SMON record."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp (UTC)."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record creation timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -1303,9 +1287,7 @@ SCHEMAS: dict[str, dict] = {
             "GARG_g": {"type": "string", "description": "GUID lock argument (alternate to GARG_s)."},
             "GTARG_g": {"type": "string", "description": "GUID transaction argument (alternate to GTARG_s)."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timeStamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -1351,9 +1333,7 @@ SCHEMAS: dict[str, dict] = {
             "LTIME_s": {"type": "string", "description": "Last entry time in queue (HH:MM:SS)."},
             "LQCOUNT_s": {"type": "string", "description": "Last entry queue counter."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -1397,9 +1377,7 @@ SCHEMAS: dict[str, dict] = {
             "LTIME_s": {"type": "string", "description": "Last entry time (HH:MM:SS)."},
             "LQCOUNT_s": {"type": "string", "description": "Last entry queue counter."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -1453,9 +1431,7 @@ SCHEMAS: dict[str, dict] = {
             "ARFCRETURN_s": {"type": "string", "description": "RFC return code. Key for diagnosing the specific failure reason."},
             "ARFCTCODE_s": {"type": "string", "description": "Transaction code that triggered the tRFC call. Use for business-context correlation."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -1525,9 +1501,7 @@ SCHEMAS: dict[str, dict] = {
             "ST03_Avg_DB_Change_Time_d": {"type": "real", "description": "Average DB change time per step (ms)."},
             "ST03_Avg_DB_Procedure_Time_d": {"type": "real", "description": "Average DB procedure time per step (ms)."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -1607,6 +1581,9 @@ SCHEMAS: dict[str, dict] = {
             "DBP_TIME_d": {"type": "real", "description": "DB procedure call time (ms)."},
             "DBP_COUNT_d": {"type": "real", "description": "DB procedure call count."},
             "DSQLCNT_d": {"type": "real", "description": "Native (direct) SQL statement count."},
+            "PHYCALLS_d": {"type": "real", "description": "Physical DB calls issued (not served from buffer). Populated on ~99% of rows here. Divide by COUNT_d for calls-per-step — a large ratio means runaway SQL in a loop."},
+            "PHYREADCNT_d": {"type": "real", "description": "Physical DB read operations. High relative to READSEQCNT_d/READDIRCNT_d indicates poor buffer hit rate."},
+            "PHYCHNGREC_d": {"type": "real", "description": "Physical DB change records written."},
             "GUITIME_d": {"type": "real", "description": "Total GUI time (ms)."},
             "GUINETTIME_d": {"type": "real", "description": "Total GUI network time (ms)."},
             "GUICNT_d": {"type": "real", "description": "GUI roundtrip count."},
@@ -1636,9 +1613,7 @@ SCHEMAS: dict[str, dict] = {
             "Total_Response_Time_d": {"type": "real", "description": "Derived total response time — derived-format rows only. Prefer RESPTI_d."},
             "ST03_Avg_Resp_Time_d": {"type": "real", "description": "Derived average response time — derived-format rows only. Usually NULL here; compute RESPTI_d / COUNT_d instead."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
@@ -1649,6 +1624,7 @@ SCHEMAS: dict[str, dict] = {
             "Averages must be computed: | summarize steps = sum(COUNT_d), resp_ms = sum(RESPTI_d), cpu_ms = sum(CPUTI_d) by tcode | extend avg_resp_ms = resp_ms / steps | top 20 by resp_ms desc",
             "Top CPU consumers (the per-tcode CPU attribution question): | summarize cpu_ms = sum(CPUTI_d) by tcode | top 20 by cpu_ms desc",
             "DB-bound objects: | extend db_ms = READSEQTI_d + READDIRTI_d + CHNGTI_d + DBP_TIME_d | where db_ms > 0.5 * RESPTI_d",
+            "Runaway SQL: | where PHYCALLS_d > 0 | extend calls_per_step = PHYCALLS_d / COUNT_d | top 20 by calls_per_step desc — hundreds of thousands of physical calls for a handful of steps means a SELECT inside a loop or a missing index.",
             "Memory offenders: | where PRIVCOUNT_d > 0 or RESTCOUNT_d > 0 — these cause PRIV mode and WP restarts; correlate with MEMORY_NO_MORE_PAGING in SapNetweaver_ShortDumps_CL.",
             "Rows repeat across collection cycles for the same interval — deduplicate before summing: | summarize arg_max(serverTimestamp_t, *) by ENTRY_ID_s, TASKTYPE_s, bin(serverTimestamp_t, 1h)",
         ],
@@ -1736,9 +1712,7 @@ SCHEMAS: dict[str, dict] = {
             "Total_Steps_d": {"type": "real", "description": "Derived step count — derived-format rows only. Prefer COUNT_d."},
             "ST03_Avg_Resp_Time_d": {"type": "real", "description": "Derived average response time — derived-format rows only. Compute RESPTI_d / COUNT_d instead."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
@@ -1844,9 +1818,7 @@ SCHEMAS: dict[str, dict] = {
             "Total_Steps_d": {"type": "real", "description": "Derived step count — derived-format rows only."},
             "ST03_Avg_Resp_Time_d": {"type": "real", "description": "Derived average response time — derived-format rows only."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
@@ -1905,9 +1877,7 @@ SCHEMAS: dict[str, dict] = {
             "RESTCOUNT_d": {"type": "real", "description": "Number of work process restarts caused by this object after PRIV mode."},
             "COUNTER_d": {"type": "real", "description": "Number of aggregated executions behind this row. Use as the denominator for averages."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s and use serverTimestamp_t for time filters.",
@@ -1954,9 +1924,7 @@ SCHEMAS: dict[str, dict] = {
             "AS4TIME_s": {"type": "string", "description": "Time of last change/release (HHMMSS)."},
             "STRKORR_s": {"type": "string", "description": "Superior transport request number (parent request for task-level transports)."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -2006,9 +1974,7 @@ SCHEMAS: dict[str, dict] = {
             "TRANSPORT_CLIENT_s": {"type": "string", "description": "Client used for the transport import."},
             "OBJ_NAME_g": {"type": "string", "description": "GUID object name (alternate to OBJ_NAME_s)."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -2057,9 +2023,7 @@ SCHEMAS: dict[str, dict] = {
             "Reads_d": {"type": "real", "description": "Total number of read (dequeue) operations — requests that were processed."},
             "Writes_d": {"type": "real", "description": "Total number of write (enqueue) operations — requests that arrived."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
@@ -2124,9 +2088,7 @@ SCHEMAS: dict[str, dict] = {
             "lock_wait_time_d": {"type": "real", "description": "Total time spent waiting for locks (seconds). High = lock contention."},
             "server_time_d": {"type": "real", "description": "Enqueue server processing time."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
-            "TimeGenerated": {"type": "datetime", "description": "LA ingestion timestamp."},
-            "Time_Generated_t": {"type": "datetime", "description": "Provider-side timestamp."},
-            "timestamp_t": {"type": "datetime", "description": "Record timestamp."},
+            "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [
             "ALWAYS filter by SID_s: | where SID_s == '<sid>'",
