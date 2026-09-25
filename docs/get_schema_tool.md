@@ -2,7 +2,10 @@
 
 **Source:** [tools/get_schema.py](../tools/get_schema.py)
 **Registry:** [schema_registry.py](../schema_registry.py) → [schemas/](../schemas/)
-**Last verified:** 2026-09-24 against `sapmon-laws-5aa047b6ade6a2` (prod AMS) and `sapmon-laws-d44c1e41d7949a` (CHA / HA-test)
+**Last verified:** 2026-09-25 against `sapmon-laws-5aa047b6ade6a2` (prod AMS) and `sapmon-laws-d44c1e41d7949a` (CHA / HA-test)
+
+> Ground truth is taken from the **query API** (`<Table> | getschema`), never from
+> `az monitor log-analytics workspace table list` — see [§8 Time columns](#8-time-columns-and-the-underscore-trap).
 
 ---
 
@@ -72,7 +75,18 @@ Returns every registered table with three fields only.
 }
 ```
 
-**Cost: ~2,070 tokens.** Deliberately omits `columns`, `kql_hints`, `time_column`
+`global_kql_rules` (4 entries) is returned on **every** response, including error
+shapes. The fourth is easy to miss but prevents a whole class of misdiagnosis:
+
+> *"A table that has never received data in a workspace exposes only the Log
+> Analytics standard columns. Referencing any schema column then raises
+> SemanticError instead of returning zero rows — treat that error as 'not collected
+> here', not as a bad query. Confirm with: `<Table> | getschema`."*
+
+This is common in practice: `STMS_CL` has 28 columns and 78 rows in PROD, but 9
+columns and 0 rows in CHA.
+
+**Cost: ~2,144 tokens.** Deliberately omits `columns`, `kql_hints`, `time_column`
 and `sid_column` — those would multiply the size with no benefit, because the agent
 still has to fetch the full schema before it can write KQL.
 
@@ -94,14 +108,14 @@ Accepts **four kinds of input**, all resolved by the same pipeline:
 ```mermaid
 flowchart TD
     START(["get_schema(names)"]) --> EMPTY{"names empty<br/>or None?"}
-    EMPTY -- yes --> SUM["SUMMARY TIER<br/>51 tables x 3 fields<br/>~2,070 tokens"]
+    EMPTY -- yes --> SUM["SUMMARY TIER<br/>51 tables x 3 fields<br/>~2,144 tokens"]
     EMPTY -- no --> LOOP["for each name"]
 
     LOOP --> S1{"1 - exact key in<br/>SCHEMA_REGISTRY?"}
     S1 -- yes --> FULL["full schema<br/>columns + kql_hints"]
 
     S1 -- no --> S2{"2 - in _NOT_COLLECTED?"}
-    S2 -- yes --> NC["_not_collected<br/>topic + closest_available<br/>~155 tokens"]
+    S2 -- yes --> NC["_not_collected<br/>topic + closest_available<br/>~229 tokens"]
 
     S2 -- no --> S3{"3 - alias map?<br/>analysis_type, then domain"}
     S3 -- yes --> GUARD
@@ -171,8 +185,8 @@ table, not enough to write KQL:
 
 | `get_schema(['hana_db'])` | Bytes | Tokens |
 |---|---:|---:|
-| Without guard (25 full schemas) | 80,047 | **20,011** |
-| With guard (25 compact picks) | 7,214 | **1,803** |
+| Without guard (25 full schemas) | 79,119 | **19,779** |
+| With guard (25 compact picks) | 7,509 | **1,877** |
 | | | **91% saved** |
 
 > **This is a recovery path, not a step in the normal flow.** The happy path is
@@ -182,14 +196,15 @@ table, not enough to write KQL:
 
 Current alias groups and whether they trip the guard:
 
-| Alias | Tables | Full cost | Guard |
-|---|---:|---:|---|
-| `hana_db` (domain + type) | 25 | 20,011 tok | fires |
-| `sap_application` (domain) | 23 | — | fires |
-| `workload_statistics` | 5 | 8,796 tok | fires |
-| `queue_monitoring` | 3 | 2,038 tok | no |
-| `short_dumps` | 2 | 2,685 tok | no |
-| `transport_management` | 2 | 1,535 tok | no |
+| Alias | Tables | Guard |
+|---|---:|---|
+| `hana_db` (domain + type) | 25 | fires |
+| `sap_application` (domain) | 23 | fires |
+| `workload_statistics` | 5 | fires |
+| `queue_monitoring` | 3 | no |
+| `short_dumps` | 2 | no |
+| `batch_jobs` | 2 | no |
+| `transport_management` | 2 | no |
 
 ---
 
@@ -268,36 +283,107 @@ substitute:
 | `SP01` | spool requests | — |
 | `ST07` | application monitor | — |
 
-`ST02`: **537 → 155 tokens**, and the agent stops instead of guessing.
+`ST02`: **610 → 229 tokens**, and the agent stops instead of guessing.
 
 ---
 
-## 8. Response cost reference
+## 8. Time columns and the underscore trap
+
+`time_column` is the single most consequential field in the registry. If the agent
+filters on the wrong one, every time-bounded RCA silently analyses the wrong window.
+
+### Event time vs ingestion time
+
+| Column | Meaning | Use it? |
+|---|---|---|
+| `serverTimestamp_t` | **SAP event time, in UTC** | ✅ NetWeaver tables |
+| `TimeGeneratedPrometheus_t` | scrape time | ✅ Prometheus tables |
+| `TimeGenerated` | Log Analytics **ingestion** time | ⚠️ HANA only; elsewhere a fallback |
+| `Time_Generated_t`, `timestamp_t`, `timeStamp_t` | collector-side duplicates | ❌ removed from all schemas |
+
+That `serverTimestamp_t` is the SAP event time is **proven, not assumed**.
+`ShortDumps` carries SAP's own event fields, and they line up exactly:
+
+| `E2E_TIME_s` (SAP local) | `serverTimestamp_t` | `TimeGenerated` |
+|---|---|---|
+| 10:03:49 | **17:03:49Z** | 17:06:20Z |
+| 12:43:45 | **19:43:45Z** | 19:43:56Z |
+
+Seconds match exactly; the offset is the SAP system's local-to-UTC conversion
+(+7 h in PROD, 0 h in CHA). `TimeGenerated` trails by 11 s – 3 min.
+
+**HANA deliberately stays on `TimeGenerated`.** Its `_SERVER_UTC_t` trails by only
+0.5 s with comparable distinctness, so both are collection time — HANA is polled and
+has no separate event time to recover.
+
+The 18 `TimeGenerated` entries kept on non-HANA tables all carry one consistent
+description so they cannot be mistaken for the event time:
+
+> *"Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this
+> — use `serverTimestamp_t`. Useful only to detect collection gaps."*
+
+### ⚠ The underscore trap
+
+Four HANA columns genuinely begin with an underscore:
+
+```
+_LOCAL_UTC_t   _SERVER_LOCALTIME_t   _SERVER_UTC_t   _TIMESERIES_UTC_t
+```
+
+**`az monitor log-analytics workspace table list` silently strips them.** It reports
+`SERVER_UTC_t` while the only queryable name is `_SERVER_UTC_t`:
+
+```text
+management API reports : SERVER_UTC_t     -> query FAILS (BadArgumentError)
+query API getschema    : _SERVER_UTC_t    -> query succeeds
+```
+
+This caused a real regression: the underscores were "corrected" as typos across 22
+HANA tables, and the ghost-column check could not detect it because it validated
+against the same faulty source. Reverted in `0a78d89`.
+
+**Always build ground truth from `<Table> | getschema` via the query API.**
+Validating against a second, independent source is what caught it.
+
+### Date/time string formats are not uniform
+
+| Tables | `E2E_DATE_s` / date fields | Time fields |
+|---|---|---|
+| ShortDumps, SysLogs, SNAPFulldump, **BatchJobs** | `YYYY-MM-DD` (AMS-normalised) | `HH:MM:SS` |
+| SMON, TransactionalRfc, STMS, FailedUpdates | `YYYYMMDD` (raw SAP) | `HHMMSS` |
+
+The normalised ones **are** usable in KQL:
+`todatetime(strcat(E2E_DATE_s,' ',E2E_TIME_s))`.
+
+---
+
+## 9. Response cost reference
 
 | Call | Tokens |
 |---|---:|
-| `get_schema()` — all 51 tables | 2,070 |
-| `get_schema(['SapHana_Alerts_CL'])` | 689 |
-| `get_schema(['SapHana_BlockedTransactions_CL'])` | 1,128 |
-| `get_schema(['SapNetweaver_ShortDumps_CL'])` | 1,366 |
-| `get_schema(['Prometheus_OSExporter_CL'])` | 1,741 |
-| `get_schema(['SapNetweaver_SWNC_Transaction_CL'])` | 2,183 |
-| `get_schema(['hana_db'])` — guard fires | 1,803 |
-| `get_schema(['ST02'])` — not collected | 155 |
-| `get_schema(['zzz'])` — not found | 536 |
+| `get_schema()` — all 51 tables | 2,144 |
+| `get_schema(['SapHana_Alerts_CL'])` | 763 |
+| `get_schema(['SapHana_BlockedTransactions_CL'])` | 1,181 |
+| `get_schema(['SapNetweaver_ShortDumps_CL'])` | 1,424 |
+| `get_schema(['Prometheus_OSExporter_CL'])` | 1,815 |
+| `get_schema(['SapNetweaver_SWNC_Transaction_CL'])` | 2,489 |
+| `get_schema(['hana_db'])` — guard fires | 1,877 |
+| `get_schema(['sap_application'])` — guard fires | 1,872 |
+| `get_schema(['ST02'])` — not collected | 229 |
+| `get_schema(['zzz'])` — not found | 610 |
 
 Enrichment of the summary tier was evaluated and **rejected** — it costs tokens on
 every call without removing the second call, because column names are always needed:
 
 | Summary variant | Tokens | Removes a call? |
 |---|---:|---|
-| Current (name / desc / type) | 2,070 | — |
-| `+ time_column, sid_column` | 2,816 | No |
-| `+ time, sid, key_columns` | 4,057 | No |
+| Current (name / desc / type) | 2,144 | — |
+| `+ time_column, sid_column` | ~2,890 | No |
+| `+ time, sid, key_columns` | ~4,130 | No |
 
 ---
 
-## 9. Where `get_schema` sits in the RCA workflow
+## 10. Where `get_schema` sits in the RCA workflow
 
 ```mermaid
 sequenceDiagram
@@ -342,7 +428,7 @@ fall through to the generic summarizer.
 
 ---
 
-## 10. Extending
+## 11. Extending
 
 **Add a table** — add an entry to the relevant file in [schemas/](../schemas/).
 It is picked up automatically: it appears in the summary, becomes resolvable by
@@ -358,14 +444,20 @@ table name. Add to `_keyword_map`, or to `_NOT_COLLECTED` if AMS does not collec
 
 ---
 
-## 11. Known gaps
+## 12. Known gaps
 
-- `workload_statistics` now spans 5 tables (after the SWNC sub-tables were added) so
-  it trips the guard, costing an extra round-trip where it used to return one schema
-  directly. The fix is splitting the analysis_type — deferred to the analyzer work.
-- Schema compaction is partial: `ShortDumps_SNAPFulldump_CL` (342 bytes/column) and
-  `GetSystemInstanceList_CL` (244) are still above the ~140 norm. Low impact, since
-  every per-call response is already under ~2.2K tokens.
-- The two Prometheus tables are 742 and 668 bytes/column because they embed the full
-  metric catalogue in the `name_s` description. That is judged worth the cost — the
+- **`workload_statistics` spans 5 tables** (SWNC_CL plus the four ST03N
+  sub-profiles), so it trips the guard and costs an extra round-trip where it used
+  to return one schema directly. The fix is splitting the analysis_type — deferred
+  to the analyzer work, since it is the same decision.
+- **Three `analysis_type`s have no analyzer** and fall through to the generic
+  summarizer: `hana_db` (all 25 HANA tables), `enqueue_locks`, `enqueue_statistics`.
+- **`ShortDumps_SNAPFulldump_CL` is unverified against live data** — 0 rows in both
+  workspaces. Its schema follows the same collector conventions as its siblings but
+  has not been confirmed empirically.
+- Schema compaction is partial: `ShortDumps_SNAPFulldump_CL` and
+  `GetSystemInstanceList_CL` remain above the ~140 bytes/column norm. Low impact —
+  every per-call response is already under ~2.5K tokens.
+- The two Prometheus tables are the largest per column because they embed the full
+  metric catalogue in the `name_s` description. Judged worth the cost — the
   catalogue is what lets the agent pick the right metric.
