@@ -567,8 +567,8 @@ Environment variables configured on the Container App:
 | **MAX_QUERY_ROWS** | 1000 | Auto-cap for unbounded queries |
 | **DEFAULT_TIMESPAN_HOURS** | 24 | Default time window when none specified |
 | **QUERY_TIMEOUT_SECONDS** | 90 | KQL query timeout |
-| **CACHE_TTL_SECONDS** | 300 | Result cache TTL (5 minutes) |
-| **CACHE_MAX_ENTRIES** | 50 | Max cached query results |
+| **CACHE_TTL_SECONDS** | 300 | Set by the deployment script but not currently read by config.py — the cache uses its built-in 300s default |
+| **CACHE_MAX_ENTRIES** | 50 | Not currently read by config.py — the limit is the _MAX_ENTRIES constant in tools/result_cache.py |
 | **SID_WORKSPACE_MAP** | CHA:guid1,PRD:guid2 | Multi-SID workspace routing |
 
 ## <a id="_Toc241064264"></a>5.2 Azure Function App — AMS-Aligned Deployment (Implemented as POC)
@@ -1355,19 +1355,20 @@ Behavior:
 │     │                   └────────┬────────┘                │                            │
 │     │                            │                         │                            │
 │     │                   ┌────────▼─────────────────────────▼───────┐                   │
-│     │                   │  TOON Formatter                          │                   │
-│     │                   │  (compact, omit nulls, dedup)            │                   │
+│     │                   │  Result Cache — store(query_id, ...)     │                   │
+│     │                   │    rows       = FULL raw rows            │                   │
+│     │                   │    classified = FULL analyzer output     │                   │
+│     │                   │  (300s TTL, 50 entries, oldest-first)    │                   │
 │     │                   └────────┬────────────────────────────────┘                   │
-│     │                            │                                                      │
+│     │                            │ cache is written FIRST, then formatted              │
 │     │                   ┌────────▼────────┐                                            │
-│     │◄──────────────────│  Result Cache   │ ← store(query_id, rows, classified)       │
-│     │   TOON summary    │  (300s TTL,     │                                            │
-│     │   + query_id      │   50-entry LRU) │                                            │
-│     │                   └─────────────────┘                                            │
+│     │◄──────────────────│  TOON Formatter │──► compact, omit nulls, dedup              │
+│     │   TOON summary    │  (summary tier) │    TOON output is NOT cached               │
+│     │   + query_id      └─────────────────┘                                            │
 │     │                                                                                   │
 │     │ ③ get_details(query_id, category, offset, limit)                                 │
-│     ├──────────────────►┌─────────────────┐                                            │
-│     │◄──────────────────│  Result Cache   │──► Slice by category or raw pagination     │
+│     ├──────────────────►┌─────────────────┐──► category → slice cached classified      │
+│     │◄──────────────────│  Result Cache   │──► no category → paginate cached raw rows  │
 │     │   detail rows     └─────────────────┘                                            │
 │     │                                                                                   │
 │     │ ④ deeper_rca_analysis(results, analysis_type) — (optional, post-hoc)             │
@@ -1495,12 +1496,29 @@ Generic summarizer output:
 
 The result cache (tools/result_cache.py) stores full query results server-side so the agent can drill down without re-running queries.
 
+**What is stored.** Each cache entry is a CachedResult record keyed by query_id. It holds the uncompacted data, not the token-optimized response:
+
+| **Field** | **Content** |
+|---|---|
+| **rows** | The full raw rows returned by Log Analytics (no TOON compaction, no truncation) |
+| **classified** | The full analyzer output dict (complete error_investigation, next_investigation_steps, critical_findings, warnings, informational), or None when no domain analyzer matched |
+| **row_count** | Number of cached raw rows |
+| **analysis_type, sid, kql** | Query context, for traceability |
+| **created_at, ttl_seconds** | Expiry bookkeeping |
+
+The TOON-formatted summary is **not** stored. Order of operations in execute_query is: analyzer produces classified → cache_store(rows, classified) → format_summary_response() builds the compact TOON summary that is returned to the agent. The cache is therefore the authoritative full-fidelity copy, and TOON is only the wire format for the summary tier.
+
 | **Parameter** | **Default Value** | **Configurable Via** |
 |---|---|---|
-| **Cache TTL** | 300 seconds (5 min) | CACHE_TTL_SECONDS env var |
-| **Max entries** | 50 | CACHE_MAX_ENTRIES env var |
-| **Eviction** | LRU + TTL-based | Automatic |
+| **Cache TTL** | 300 seconds (5 min) | ttl_seconds argument to store(); CACHE_TTL_SECONDS is set in deployment config |
+| **Max entries** | 50 | _MAX_ENTRIES constant in tools/result_cache.py |
+| **Eviction** | TTL sweep, then oldest-first (by created_at) when the cache is full | Automatic on every store() |
 | **Query ID format** | q_{sha256_prefix_8} | Generated from KQL + SID + timestamp |
+
+**What get_details returns.** get_detail_slice() reads the cache entry, never the TOON output:
+- With a category and a cached classified result — filters the full classified structure by category (or runtime_error / message_group / metric / instance_type) and returns an offset/limit page of items.
+- Without a category, or when classified is None — returns a paginated slice of the full raw rows, with total_rows and has_more.
+- If the query_id has expired or was evicted — returns an error asking the agent to re-run the query.
 
 Progressive disclosure workflow:
 
@@ -2085,8 +2103,8 @@ The work is additive. No existing tool signature or return shape changes, so the
 | **MAX_QUERY_ROWS** | 1000 | No | Row cap for queries without explicit limit |
 | **QUERY_TIMEOUT_SECONDS** | 60 | No | KQL query execution timeout |
 | **DEFAULT_TIMESPAN_HOURS** | 24 | No | Default time window when none specified |
-| **CACHE_TTL_SECONDS** | 300 | No | Result cache entry time-to-live |
-| **CACHE_MAX_ENTRIES** | 50 | No | Maximum number of cached query results |
+| **CACHE_TTL_SECONDS** | 300 | No | Reserved. Set in deployment config but not read by config.py; the cache applies its built-in 300s default |
+| **CACHE_MAX_ENTRIES** | 50 | No | Reserved. Not read by config.py; the limit is the _MAX_ENTRIES constant in tools/result_cache.py |
 
 ## Review Comments
 

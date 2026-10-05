@@ -32,8 +32,13 @@ backup_required/
 
 # Temp files
 .tmp_token.txt
+.la_token.txt
+.ado_token.txt
 ~$*
 *.pptx
+
+# Foundry trace exports (may contain internal query/context data)
+foundry_traces/
 
 # Video artifacts
 hack-video/

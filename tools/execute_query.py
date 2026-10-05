@@ -187,6 +187,19 @@ def execute_query(
     result = la_client.execute_kql(capped_kql, timespan, workspace_id or None, sid=sid)
     result["sid"] = sid
 
+    # If the query itself failed (auth, timeout, or a semantic/syntax error from
+    # Log Analytics), surface that immediately. Do NOT let an empty rows list
+    # fall through to the analyzer/summarizer — that produces a misleading
+    # "0 results found" response instead of the real execution error.
+    if result.get("status") == "error":
+        return {
+            "status": "error",
+            "sid": sid,
+            "error": result.get("error", "Query execution failed."),
+            "query_id": generate_query_id(kql, sid),
+            "_pipeline": "execute_query → KQL execution failed (not classified)",
+        }
+
     rows = result.get("rows", [])
     row_count = result.get("row_count", len(rows))
 

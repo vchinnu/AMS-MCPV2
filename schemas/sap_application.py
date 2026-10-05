@@ -82,7 +82,7 @@ SCHEMAS: dict[str, dict] = {
             "Runtime_Error_s 'DBIF_*' or 'DBSQL_*' indicate database errors — check SapHana_BlockedTransactions_CL and SapHana_LongRunningTransactions_CL.",
             "Runtime_Error_s 'CALL_FUNCTION_*' indicate RFC failures — check SapNetweaver_TransactionalRfc_CL and SapNetweaver_SWNC_RFC_Usage_CL.",
             "Correlate Program_s with batch job step programs when investigating job failures.",
-            "Log Analytics also created numeric twin columns (Application_Componen_d, Component_d, Development_Class_d, Error_Short_Text_d, Exception_d, Transaction_ID_d) from occasional type collisions. They are almost always null — always use the _s versions.",
+            "Log Analytics also created numeric twin columns (Component_d, Exception_d, Transaction_ID_d, Development_Class_d, Error_Short_Text_d, Application_Componen_d) from occasional type collisions. They are almost always null — always use the _s versions.",
         ],
     },
 
@@ -428,6 +428,9 @@ SCHEMAS: dict[str, dict] = {
                 "type": "string",
                 "description": "SAP transaction code in context (if available).",
             },
+            "Development_Class_d": {"type": "real", "description": "Numeric twin of Development_Class_s from an occasional type collision. Almost always null — use Development_Class_s."},
+            "Program_d": {"type": "real", "description": "Numeric twin of Program_s from an occasional type collision. Almost always null — use Program_s."},
+            "Transaction_d": {"type": "real", "description": "Numeric twin of Transaction_s from an occasional type collision. Almost always null — use Transaction_s."},
             "sapsid_s": {
                 "type": "string",
                 "description": "Alternate SAP SID column (same value as SID_s).",
@@ -1287,6 +1290,7 @@ SCHEMAS: dict[str, dict] = {
             "GARG_g": {"type": "string", "description": "GUID lock argument (alternate to GARG_s)."},
             "GTARG_g": {"type": "string", "description": "GUID transaction argument (alternate to GTARG_s)."},
             "serverTimestamp_t": {"type": "datetime", "description": "Collection timestamp — use for KQL time filters."},
+            "timeStamp_t": {"type": "datetime", "description": "Alternate collection timestamp column present alongside serverTimestamp_t."},
             "TimeGenerated": {"type": "datetime", "description": "Log Analytics INGESTION time, not the event time. Do NOT filter or trend on this \u2014 use serverTimestamp_t. Useful only to detect collection gaps."},
         },
         "kql_hints": [

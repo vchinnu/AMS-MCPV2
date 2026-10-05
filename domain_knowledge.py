@@ -411,6 +411,26 @@ RUNTIME_ERROR_CATEGORIES: dict[str, dict] = {
             "Check if other dump types (DBIF_RSQL_SQL_ERROR) or SM21 database message IDs (BY0, BY1) occurred at the same time.",
         ],
     },
+    "DBSQL_SQL_INTERNAL_DB_ERROR": {
+        "category":    "Database Error",
+        "subcategory": "SQL Runtime Error (Modern Open SQL)",
+        "meaning": (
+            "Modern Open SQL (@-escaped host variables, CX_SY_OPEN_SQL_DB exception class) raised a database-side error "
+            "while executing a statement — the equivalent of DBIF_RSQL_SQL_ERROR for the newer Open SQL runtime. "
+            "On SAP HANA, a common cause is the statement exceeding a configured resource limit (e.g. "
+            "'memorymanager'/'statement_memory_limit' — SQL code 4, 'cannot allocate enough memory') rather than a "
+            "connectivity or syntax problem. This frequently follows a transport that removed a WHERE-clause filter or "
+            "added an ORDER BY/sort, turning a previously cheap, filtered query into a large full-table scan or in-memory sort."
+        ),
+        "investigation_hints": [
+            "Check Error_Short_Text_s / RFC_SQL_CONTEXT section for the exact HANA SQL code and message (e.g. 'cannot allocate enough memory').",
+            "Check SapHana_Alerts_CL for a corresponding memory/statement alert — note: transient single-statement memory-limit "
+            "rejections often do NOT raise a HANA Alert (alerts are threshold/condition-based); absence of an alert does not rule this out.",
+            "Check STMS_ObjectEntries_CL / STMS_CL for a recent transport touching the failing program — a removed filter or added ORDER BY is a common regression trigger.",
+            "Check HANA statement_memory_limit configuration (SYS.M_INIFILE_CONTENTS, section 'memorymanager') at DATABASE/SYSTEM layer for the tenant.",
+            "Compare the failing SQL against its prior (working) version — full-table SELECT/ORDER BY without date/key filters is the typical smoking gun.",
+        ],
+    },
     "SQL_CAUGHT_RABAX": {
         "category":    "Database Error",
         "subcategory": "SQL Short Dump",
